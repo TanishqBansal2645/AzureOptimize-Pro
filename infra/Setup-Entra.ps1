@@ -179,6 +179,6 @@ Write-Host "  After deployment, update the redirect URI:" -ForegroundColor Cyan
 Write-Host "    .\Setup-Entra.ps1 -TenantId `"$TenantId`" -DashboardUrl `"<DASHBOARD_URL>`" -UpdateRedirectUri -AppClientId `"$AppClientId`"" -ForegroundColor Gray
 Write-Host ""
 
-# Machine-parseable markers for Install.ps1 auto-detection
-Write-Host "##RESULT AppClientId=$AppClientId"
-Write-Host "##RESULT AdminPrincipalId=$adminOid"
+# Machine-parseable markers for Install.ps1 auto-detection (Write-Output so they go to stream 1)
+Write-Output "##RESULT AppClientId=$AppClientId"
+Write-Output "##RESULT AdminPrincipalId=$adminOid"
