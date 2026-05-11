@@ -213,18 +213,17 @@ if (-not $Update) {
     try {
         az group create --name $ResourceGroupName --location $Location --output none
 
-        $deployParams = @(
-            "adminPrincipalId=$AdminPrincipalId",
-            "appClientId=$AppClientId",
-            "tenantId=$TenantId"
-        )
-        $paramStr = $deployParams -join " "
-
         $deployOutput = az deployment group create `
             --resource-group $ResourceGroupName `
             --template-file $bicepPath `
-            --parameters $paramStr `
-            --output json | ConvertFrom-Json
+            --parameters "adminPrincipalId=$AdminPrincipalId" "appClientId=$AppClientId" "tenantId=$TenantId" `
+            --output json 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Bicep deployment failed: $deployOutput"
+        }
+
+        $deployOutput = $deployOutput | ConvertFrom-Json
 
         $outputs = $deployOutput.properties.outputs
         $script:dashboardUrl = $outputs.dashboardUrl.value
