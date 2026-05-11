@@ -96,15 +96,20 @@ else {
     # Create new app registration
     Write-Host "  Creating Entra App Registration..." -ForegroundColor Cyan
 
+    $createError = $null
     $AppClientId = (az ad app create `
         --display-name "AzureOptimize Pro" `
         --sign-in-audience "AzureADMyOrg" `
         --web-redirect-uris $DashboardUrl "http://localhost:3000" `
-        --query "appId" -o tsv 2>$null)
+        --query "appId" -o tsv 2>&1) | ForEach-Object {
+            if ($_ -match "^ERROR" -or $_ -match "^error") { $createError = $_; $null }
+            else { $_ }
+        }
 
+    if ($AppClientId) { $AppClientId = ($AppClientId | Where-Object { $_ -match "^[0-9a-f-]{36}$" }) }
     if ($AppClientId) { $AppClientId = $AppClientId.Trim() }
 
-    # Fallback: query by display name in case output was suppressed
+    # Fallback: query by display name (handles race conditions or output interleaving)
     if (-not $AppClientId) {
         Start-Sleep -Seconds 5
         $AppClientId = (az ad app list --display-name "AzureOptimize Pro" --query "[0].appId" -o tsv 2>$null)
@@ -112,8 +117,20 @@ else {
     }
 
     if (-not $AppClientId) {
-        Write-Host "  ERROR: Failed to create or retrieve the App Registration." -ForegroundColor Red
-        Write-Host "  Check that you have Application Administrator or Global Administrator role in Entra." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  ERROR: Failed to create the App Registration." -ForegroundColor Red
+        if ($createError) {
+            Write-Host "  Azure error: $createError" -ForegroundColor Red
+        }
+        Write-Host ""
+        Write-Host "  To fix this, assign yourself the 'Application Administrator' role:" -ForegroundColor Yellow
+        Write-Host "    Portal -> Microsoft Entra ID -> Roles and administrators" -ForegroundColor Yellow
+        Write-Host "    -> Find 'Application Administrator' -> Add assignments -> add your account" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Or create the App Registration manually in the Portal:" -ForegroundColor Yellow
+        Write-Host "    Portal -> Microsoft Entra ID -> App registrations -> New registration" -ForegroundColor Yellow
+        Write-Host "    Name: AzureOptimize Pro, Supported account types: This org only" -ForegroundColor Yellow
+        Write-Host "    Then re-run this script." -ForegroundColor Yellow
         exit 1
     }
 

@@ -137,23 +137,23 @@ Write-Host "  Running Setup-Entra.ps1..." -ForegroundColor Gray
 
 # Capture the output to extract AppClientId and AdminPrincipalId
 $entraOutput = & $entraScript -TenantId $TenantId 2>&1
+$entraExitCode = $LASTEXITCODE
 $entraOutput | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
+
+# Stop if Setup-Entra failed (e.g. insufficient Entra permissions)
+if ($entraExitCode -ne 0) {
+    Write-Host ""
+    Write-Host "  Entra setup failed (exit code $entraExitCode). See errors above." -ForegroundColor Red
+    Write-Host "  Fix the issue and re-run this installer." -ForegroundColor Yellow
+    exit 1
+}
 
 # Parse out the AppClientId and AdminPrincipalId from the script's structured output markers
 $AppClientId = ($entraOutput | Select-String "##RESULT AppClientId=([0-9a-f-]+)" | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
 $AdminPrincipalId = ($entraOutput | Select-String "##RESULT AdminPrincipalId=([0-9a-f-]+)" | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
 
-# Fallback: if Setup-Entra didn't emit structured output, prompt
-if (-not $AppClientId) {
-    Write-Host ""
-    Write-Host "  Could not auto-detect AppClientId from Entra setup output." -ForegroundColor Yellow
-    $AppClientId = Read-Host "  Enter the App Registration Client ID"
-}
 if (-not $AdminPrincipalId) {
     $AdminPrincipalId = az ad signed-in-user show --query "id" -o tsv 2>$null
-    if (-not $AdminPrincipalId) {
-        $AdminPrincipalId = Read-Host "  Enter your Entra Object ID (az ad signed-in-user show --query id -o tsv)"
-    }
 }
 
 Write-Host "  App Client ID     : $AppClientId" -ForegroundColor Green
