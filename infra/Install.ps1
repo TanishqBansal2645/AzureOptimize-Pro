@@ -10,16 +10,16 @@
 
     Designed to be invoked from Azure Cloud Shell with a single command:
 
-        irm https://raw.githubusercontent.com/<org>/azureoptimize/main/infra/Install.ps1 | iex
+        irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
 
     Or with parameters:
 
         $params = @{ Location = "westeurope"; ResourceGroupName = "rg-myoptimize" }
-        irm https://raw.githubusercontent.com/<org>/azureoptimize/main/infra/Install.ps1 | iex
+        irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
 
 .PARAMETER RepoUrl
     GitHub repository HTTPS clone URL.
-    Default: https://github.com/<org>/azureoptimize.git
+    Default: https://github.com/TanishqBansal2645/AzureOptimize-Pro.git
 
 .PARAMETER Branch
     Git branch to clone. Default: main
@@ -35,15 +35,15 @@
 
 .EXAMPLE
     # Full install (interactive — prompts for confirmation at each step)
-    irm https://raw.githubusercontent.com/<org>/azureoptimize/main/infra/Install.ps1 | iex
+    irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
 
 .EXAMPLE
     # Specify region and resource group
-    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/<org>/azureoptimize/main/infra/Install.ps1))) -Location "westeurope" -ResourceGroupName "rg-costopt"
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Location "westeurope" -ResourceGroupName "rg-costopt"
 #>
 
 param(
-    [string] $RepoUrl = "https://github.com/TechPlusTalent/azureoptimize.git",
+    [string] $RepoUrl = "https://github.com/TanishqBansal2645/AzureOptimize-Pro.git",
     [string] $Branch = "main",
     [string] $Location = "eastus",
     [string] $ResourceGroupName = "rg-azureoptimize",
