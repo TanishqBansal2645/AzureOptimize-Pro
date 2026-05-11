@@ -112,7 +112,7 @@ module staticWebApp 'modules/staticWebApp.bicep' = {
   name: 'staticWebAppDeployment'
   params: {
     staticWebAppName: staticWebAppName
-    location: location
+    location: 'eastus2' // Static Web Apps not available in eastus
     tenantId: tenantId
     appClientId: appClientId
     functionAppUrl: functionApp.outputs.functionAppUrl
