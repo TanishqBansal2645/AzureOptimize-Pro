@@ -139,9 +139,9 @@ Write-Host "  Running Setup-Entra.ps1..." -ForegroundColor Gray
 $entraOutput = & $entraScript -TenantId $TenantId 2>&1
 $entraOutput | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
 
-# Parse out the AppClientId and AdminPrincipalId from the script's output
-$AppClientId = ($entraOutput | Select-String "AppClientId\s*[:=]\s*([0-9a-f-]+)" | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
-$AdminPrincipalId = ($entraOutput | Select-String "AdminPrincipalId\s*[:=]\s*([0-9a-f-]+)" | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
+# Parse out the AppClientId and AdminPrincipalId from the script's structured output markers
+$AppClientId = ($entraOutput | Select-String "##RESULT AppClientId=([0-9a-f-]+)" | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
+$AdminPrincipalId = ($entraOutput | Select-String "##RESULT AdminPrincipalId=([0-9a-f-]+)" | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
 
 # Fallback: if Setup-Entra didn't emit structured output, prompt
 if (-not $AppClientId) {

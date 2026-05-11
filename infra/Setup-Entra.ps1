@@ -85,24 +85,38 @@ if ($UpdateRedirectUri) {
 
 # Check if app already exists
 Write-Host "  Checking for existing AzureOptimize Pro app..." -ForegroundColor Cyan
-$existingApp = az ad app list --display-name "AzureOptimize Pro" --query "[0]" -o json 2>$null | ConvertFrom-Json
+$existingAppId = az ad app list --display-name "AzureOptimize Pro" --query "[0].appId" -o tsv 2>$null
 
-if ($existingApp -and $existingApp.appId) {
-    Write-Host "  Found existing app: $($existingApp.appId)" -ForegroundColor Yellow
-    $AppClientId = $existingApp.appId
+if ($existingAppId) {
+    Write-Host "  Found existing app: $existingAppId" -ForegroundColor Yellow
+    $AppClientId = $existingAppId.Trim()
     Write-Host "  Reusing existing app registration." -ForegroundColor Cyan
 }
 else {
     # Create new app registration
     Write-Host "  Creating Entra App Registration..." -ForegroundColor Cyan
 
-    $appJson = az ad app create `
+    $AppClientId = (az ad app create `
         --display-name "AzureOptimize Pro" `
         --sign-in-audience "AzureADMyOrg" `
         --web-redirect-uris $DashboardUrl "http://localhost:3000" `
-        --output json | ConvertFrom-Json
+        --query "appId" -o tsv 2>$null)
 
-    $AppClientId = $appJson.appId
+    if ($AppClientId) { $AppClientId = $AppClientId.Trim() }
+
+    # Fallback: query by display name in case output was suppressed
+    if (-not $AppClientId) {
+        Start-Sleep -Seconds 5
+        $AppClientId = (az ad app list --display-name "AzureOptimize Pro" --query "[0].appId" -o tsv 2>$null)
+        if ($AppClientId) { $AppClientId = $AppClientId.Trim() }
+    }
+
+    if (-not $AppClientId) {
+        Write-Host "  ERROR: Failed to create or retrieve the App Registration." -ForegroundColor Red
+        Write-Host "  Check that you have Application Administrator or Global Administrator role in Entra." -ForegroundColor Yellow
+        exit 1
+    }
+
     Write-Host "  App created. Client ID: $AppClientId" -ForegroundColor Green
 
     # Create service principal
@@ -150,3 +164,7 @@ Write-Host ""
 Write-Host "  After deployment, update the redirect URI:" -ForegroundColor Cyan
 Write-Host "    .\Setup-Entra.ps1 -TenantId `"$TenantId`" -DashboardUrl `"<DASHBOARD_URL>`" -UpdateRedirectUri -AppClientId `"$AppClientId`"" -ForegroundColor Gray
 Write-Host ""
+
+# Machine-parseable markers for Install.ps1 auto-detection
+Write-Host "##RESULT AppClientId=$AppClientId"
+Write-Host "##RESULT AdminPrincipalId=$adminOid"
