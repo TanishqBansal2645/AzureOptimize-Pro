@@ -31,6 +31,9 @@ param adminPrincipalId string
 @description('App Client ID')
 param appClientId string
 
+@description('Storage account connection string (required for bootstrap settings on Consumption plan)')
+param storageConnectionString string
+
 // Consumption App Service Plan
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   name: appServicePlanName
@@ -62,11 +65,11 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
       appSettings: [
         {
           name: 'AzureWebJobsStorage'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/storage-connection-string/)'
+          value: storageConnectionString
         }
         {
           name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/storage-connection-string/)'
+          value: storageConnectionString
         }
         {
           name: 'WEBSITE_CONTENTSHARE'

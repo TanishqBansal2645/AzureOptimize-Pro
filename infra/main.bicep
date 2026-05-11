@@ -95,6 +95,7 @@ module functionApp 'modules/functionApp.bicep' = {
     appServicePlanName: appServicePlanName
     location: location
     storageAccountName: storageAccountName
+    storageConnectionString: storage.outputs.connectionString
     managedIdentityId: managedIdentity.id
     managedIdentityClientId: managedIdentity.properties.clientId
     keyVaultUri: keyVault.outputs.keyVaultUri
