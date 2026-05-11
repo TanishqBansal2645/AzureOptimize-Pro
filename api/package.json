@@ -1,0 +1,42 @@
+{
+  "name": "azureoptimize-pro-api",
+  "version": "1.0.0",
+  "description": "Azure Cost Optimization Tool - API Backend",
+  "main": "dist/src/functions/*.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -w -p tsconfig.json",
+    "clean": "rimraf dist",
+    "prestart": "npm run build",
+    "start": "func start",
+    "dev": "npm run build && func start"
+  },
+  "dependencies": {
+    "@azure/arm-advisor": "^3.0.0",
+    "@azure/arm-compute": "^21.0.0",
+    "@azure/arm-costmanagement": "1.0.0-beta.2",
+    "@azure/arm-resourcegraph": "^4.0.0",
+    "@azure/arm-resources": "^5.2.0",
+    "@azure/arm-resources-subscriptions": "^2.1.0",
+    "@azure/arm-consumption": "^9.1.0",
+    "@azure/data-tables": "^13.2.2",
+    "@azure/functions": "^4.5.0",
+    "@azure/identity": "^4.4.1",
+    "@azure/keyvault-secrets": "^4.8.0",
+    "@azure/monitor-query": "^1.3.1",
+    "@azure/storage-blob": "^12.24.0",
+    "exceljs": "^4.4.0",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.1.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^20.16.5",
+    "rimraf": "^5.0.10",
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

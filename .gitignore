@@ -1,0 +1,38 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log
+
+# TypeScript
+dist/
+*.tsbuildinfo
+
+# Next.js
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.production
+api/local.settings.json
+
+# Azure Functions
+bin/
+obj/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+*.zip

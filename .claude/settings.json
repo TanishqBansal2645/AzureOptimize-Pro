@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "$d = $input | ConvertFrom-Json; $f = $d.tool_input.file_path; if ($f -and $f -notmatch 'GUIDE\\.md|SETUP\\.md|MASTER_PROMPT\\.md') { Write-Output 'REMINDER: If this change affects architecture, features, setup steps, or environment variables — update GUIDE.md and SETUP.md to match.' }",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
