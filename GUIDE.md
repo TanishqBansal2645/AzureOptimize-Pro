@@ -436,6 +436,7 @@ azureoptimize-pro/
 │   ├── components/
 │   │   ├── ui/
 │   │   │   ├── ImplementationModal.tsx  # Pre-implementation disclaimer + execution modal
+│   │   │   ├── ImpactViewModal.tsx      # Read-only impact summary for past implementations
 │   │   │   └── ...              # Other shadcn/ui components
 │   │   ├── charts/              # Recharts wrappers
 │   │   └── layout/              # Sidebar, Header, Nav
@@ -597,13 +598,21 @@ NEXT_PUBLIC_ADMIN_PRINCIPAL_ID=      # Entra Object ID of the admin user IN THIS
 #### API (`api/local.settings.json`)
 ```json
 {
+  "IsEncrypted": false,
   "Values": {
-    "AZURE_TENANT_ID": "",
-    "STORAGE_ACCOUNT_NAME": "",
-    "STORAGE_ACCOUNT_KEY": "",
-    "ADMIN_PRINCIPAL_ID": "",        // Entra Object ID of the admin user IN THIS TENANT (see note below)
-    "KEY_VAULT_URI": "",
-    "COMPANY_NAME": ""               // Optional: client name shown in sidebar/header (falls back to AAD tenant name)
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "AZURE_TENANT_ID": "<your-tenant-id>",
+    "AZURE_CLIENT_ID": "<entra-app-client-id>",
+    "STORAGE_ACCOUNT_NAME": "<storage-account-name>",
+    "STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountName=<name>;AccountKey=<key>;EndpointSuffix=core.windows.net",
+    "ADMIN_PRINCIPAL_ID": "<admin-user-entra-object-id>",
+    "KEY_VAULT_URI": "https://<key-vault-name>.vault.azure.net/"
+  },
+  "Host": {
+    "LocalHttpPort": 7071,
+    "CORS": "*",
+    "CORSCredentials": false
   }
 }
 ```
