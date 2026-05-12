@@ -47,36 +47,45 @@ export async function uploadExcelReport(
 }
 
 export async function generateSasUrl(blobUrl: string): Promise<string> {
-  // Extract account key from connection string for SAS generation
-  const match = connectionString.match(/AccountKey=([^;]+)/);
-  if (!match) {
-    // Without account key, return the blob URL directly (works with Managed Identity in prod via Azure Portal)
-    return blobUrl;
-  }
-
-  const accountKey = match[1];
   const blobName = blobUrl.split(`/${REPORTS_CONTAINER}/`)[1];
-
-  const sharedKeyCredential = new StorageSharedKeyCredential(
-    accountName,
-    accountKey
-  );
-
+  const startsOn = new Date();
   const expiresOn = new Date();
   expiresOn.setHours(expiresOn.getHours() + 1);
 
+  // Local dev: use account key from connection string
+  const match = connectionString.match(/AccountKey=([^;]+)/);
+  if (match) {
+    const sharedKeyCredential = new StorageSharedKeyCredential(accountName, match[1]);
+    const sasToken = generateBlobSASQueryParameters(
+      {
+        containerName: REPORTS_CONTAINER,
+        blobName,
+        permissions: BlobSASPermissions.parse('r'),
+        startsOn,
+        expiresOn,
+        protocol: SASProtocol.Https,
+      },
+      sharedKeyCredential
+    ).toString();
+    return `${blobUrl}?${sasToken}`;
+  }
+
+  // Production: use user delegation key via Managed Identity
+  // Requires Storage Blob Delegator role on the storage account
+  const serviceClient = getBlobServiceClient();
+  const userDelegationKey = await serviceClient.getUserDelegationKey(startsOn, expiresOn);
   const sasToken = generateBlobSASQueryParameters(
     {
       containerName: REPORTS_CONTAINER,
       blobName,
       permissions: BlobSASPermissions.parse('r'),
-      startsOn: new Date(),
+      startsOn,
       expiresOn,
       protocol: SASProtocol.Https,
     },
-    sharedKeyCredential
+    userDelegationKey,
+    accountName
   ).toString();
-
   return `${blobUrl}?${sasToken}`;
 }
 

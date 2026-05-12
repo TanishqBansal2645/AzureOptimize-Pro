@@ -57,6 +57,18 @@ resource blobContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01
   }
 }
 
+// Assign Storage Blob Delegator to Managed Identity (required for user delegation SAS generation)
+var storageBlobDelegatorRoleId = 'db58b8e5-c6ad-4a2a-8342-4190687cbf4a'
+resource blobDelegatorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, managedIdentityPrincipalId, storageBlobDelegatorRoleId)
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDelegatorRoleId)
+    principalId: managedIdentityPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // Assign Storage Table Data Contributor to Managed Identity
 var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 resource tableContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
