@@ -28,6 +28,7 @@ async function getImplementationsHttp(
       data: records.map((r) => ({
         id: r.rowKey,
         type: r.type,
+        resourceId: r.resourceId,
         resourceType: r.resourceType,
         resourceName: r.resourceName,
         resourceGroup: r.resourceGroup,

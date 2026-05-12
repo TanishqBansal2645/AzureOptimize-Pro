@@ -1,15 +1,17 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataTable } from '@/components/ui/DataTable';
 import { Badge } from '@/components/ui/Badge';
-import { fetchImplementations } from '@/lib/api';
+import { ImpactViewModal } from '@/components/ui/ImpactViewModal';
+import { fetchImplementations, ImplementationRecord } from '@/lib/api';
 import { formatCurrency, formatDateShort } from '@/lib/utils';
-import { Zap, CheckCircle2, AlertTriangle, Clock, DollarSign } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Clock, DollarSign, FileText } from 'lucide-react';
 
-function statusBadge(status: string, automated: boolean) {
+function statusBadge(status: string) {
   if (status === 'succeeded') return <Badge variant="success">Succeeded</Badge>;
   if (status === 'failed')    return <Badge variant="danger">Failed</Badge>;
   if (status === 'running')   return <Badge variant="info">Running</Badge>;
@@ -18,6 +20,8 @@ function statusBadge(status: string, automated: boolean) {
 }
 
 export default function ImplementationsPage() {
+  const [impactRecord, setImpactRecord] = useState<ImplementationRecord | null>(null);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['implementations'],
     queryFn: fetchImplementations,
@@ -116,7 +120,7 @@ export default function ImplementationsPage() {
               key: 'status',
               label: 'Status',
               sortable: true,
-              render: (v, row) => statusBadge(String(v), Boolean(row['automated'])),
+              render: (v) => statusBadge(String(v)),
             },
             {
               key: 'monthlySaving',
@@ -127,9 +131,29 @@ export default function ImplementationsPage() {
               ),
             },
             { key: 'initiatedBy', label: 'Initiated By', sortable: true },
+            {
+              key: 'id',
+              label: 'Impact',
+              render: (_v, row) => (
+                <button
+                  onClick={() => setImpactRecord(row as ImplementationRecord)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Impact
+                </button>
+              ),
+            },
           ]}
         />
       </div>
+
+      {impactRecord && (
+        <ImpactViewModal
+          record={impactRecord}
+          onClose={() => setImpactRecord(null)}
+        />
+      )}
     </AppLayout>
   );
 }

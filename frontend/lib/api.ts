@@ -445,6 +445,7 @@ export async function executeRemediation(
 export interface ImplementationRecord {
   id: string;
   type: string;
+  resourceId: string;
   resourceType: string;
   resourceName: string;
   resourceGroup: string;
