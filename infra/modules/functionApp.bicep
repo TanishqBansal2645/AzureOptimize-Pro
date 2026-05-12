@@ -129,13 +129,6 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
           value: '1'
         }
       ]
-      cors: {
-        allowedOrigins: [
-          'https://portal.azure.com'
-          '*'
-        ]
-        supportCredentials: false
-      }
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       nodeVersion: '~20'
