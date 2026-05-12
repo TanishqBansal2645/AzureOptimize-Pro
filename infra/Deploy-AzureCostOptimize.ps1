@@ -30,8 +30,10 @@
     Name of the resource group. Default: rg-azureoptimize
 
 .PARAMETER GitHubToken
-    Optional GitHub Personal Access Token (contents: read+write) to automatically
-    configure GitHub Actions secrets and trigger the first deployment.
+    Optional GitHub Personal Access Token to automatically configure GitHub Actions
+    secrets, repository variables, and trigger the first deployment.
+    Required scopes: repo (classic PAT) or Actions read/write (fine-grained PAT).
+    Install PyNaCl first: pip install PyNaCl
 
 .PARAMETER GitHubRepo
     GitHub repo in owner/repo format. Default: TanishqBansal2645/AzureOptimize-Pro
@@ -120,6 +122,33 @@ function Show-Banner {
     Write-Host "    Cost Optimization Platform v1.1" -ForegroundColor Blue
     Write-Host "================================================================" -ForegroundColor Blue
     Write-Host ""
+}
+
+function Set-GitHubVariable {
+    param(
+        [string] $Token,
+        [string] $Repo,
+        [string] $Name,
+        [string] $Value
+    )
+    $headers = @{
+        Authorization          = "Bearer $Token"
+        Accept                 = "application/vnd.github.v3+json"
+        "User-Agent"           = "AzureOptimize-Deploy"
+        "X-GitHub-Api-Version" = "2022-11-28"
+    }
+    $body = @{ name = $Name; value = $Value } | ConvertTo-Json -Compress
+    # Try PATCH (update existing), fall back to POST (create new)
+    try {
+        Invoke-RestMethod -Method PATCH `
+            -Uri "https://api.github.com/repos/$Repo/actions/variables/$Name" `
+            -Headers $headers -Body $body -ContentType "application/json" | Out-Null
+    }
+    catch {
+        Invoke-RestMethod -Method POST `
+            -Uri "https://api.github.com/repos/$Repo/actions/variables" `
+            -Headers $headers -Body $body -ContentType "application/json" | Out-Null
+    }
 }
 
 function Set-GitHubSecret {
@@ -378,11 +407,15 @@ else {
             --output json 2>$null | ConvertFrom-Json
 
         if (-not $deployOutput) {
-            $script:functionAppName = az functionapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv
+            $script:functionAppName = az functionapp list --resource-group $ResourceGroupName --query "[?starts_with(name,'func-azureoptimize')].name" -o tsv
+            if (-not $script:functionAppName) { $script:functionAppName = az functionapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv }
             $script:functionAppUrl = "https://$($script:functionAppName).azurewebsites.net"
-            $script:dashboardUrl = "https://$(az staticwebapp list --resource-group $ResourceGroupName --query '[0].defaultHostname' -o tsv)"
-            $script:storageAccountName = az storage account list --resource-group $ResourceGroupName --query "[0].name" -o tsv
-            $script:keyVaultUri = az keyvault list --resource-group $ResourceGroupName --query "[0].properties.vaultUri" -o tsv
+            $script:dashboardUrl = "https://$(az staticwebapp list --resource-group $ResourceGroupName --query "[?starts_with(name,'swa-azureoptimize')].defaultHostname" -o tsv)"
+            if ($script:dashboardUrl -eq "https://") { $script:dashboardUrl = "https://$(az staticwebapp list --resource-group $ResourceGroupName --query '[0].defaultHostname' -o tsv)" }
+            $script:storageAccountName = az storage account list --resource-group $ResourceGroupName --query "[?starts_with(name,'stazopt')].name" -o tsv
+            if (-not $script:storageAccountName) { $script:storageAccountName = az storage account list --resource-group $ResourceGroupName --query "[0].name" -o tsv }
+            $script:keyVaultUri = az keyvault list --resource-group $ResourceGroupName --query "[?starts_with(name,'kv-azopt')].properties.vaultUri" -o tsv
+            if (-not $script:keyVaultUri) { $script:keyVaultUri = az keyvault list --resource-group $ResourceGroupName --query "[0].properties.vaultUri" -o tsv }
         }
         else {
             $outputs = $deployOutput.properties.outputs
@@ -492,6 +525,27 @@ if ($GitHubToken) {
         exit 1
     }
 
+    Write-Host "  Setting GitHub repository variables..." -ForegroundColor Gray
+    $repoVars = [ordered]@{
+        "AZURE_FUNCTIONAPP_NAME"         = $script:functionAppName
+        "NEXT_PUBLIC_AZURE_TENANT_ID"    = $TenantId
+        "NEXT_PUBLIC_AZURE_CLIENT_ID"    = $AppClientId
+        "NEXT_PUBLIC_AZURE_REDIRECT_URI" = $script:dashboardUrl
+        "NEXT_PUBLIC_API_BASE_URL"       = "$($script:functionAppUrl)/api"
+        "NEXT_PUBLIC_ADMIN_PRINCIPAL_ID" = $AdminPrincipalId
+    }
+    if ($trimmedDeveloperName) { $repoVars["NEXT_PUBLIC_DEVELOPER_NAME"] = $trimmedDeveloperName }
+
+    foreach ($varName in $repoVars.Keys) {
+        try {
+            Set-GitHubVariable -Token $GitHubToken -Repo $GitHubRepo -Name $varName -Value $repoVars[$varName]
+            Write-Host "  v $varName" -ForegroundColor Green
+        }
+        catch {
+            Write-Warn "Could not set variable ${varName}: $_"
+        }
+    }
+
     Write-Host "  Triggering deployment workflows..." -ForegroundColor Gray
     $ghHeaders = @{
         Authorization          = "Bearer $GitHubToken"
@@ -521,10 +575,24 @@ else {
     Set-Content -Path (Join-Path $secretsDir "AZURE_STATIC_WEB_APPS_API_TOKEN.txt") -Value $deployToken -Encoding utf8
     Set-Content -Path (Join-Path $secretsDir "AZURE_FUNCTIONAPP_PUBLISH_PROFILE.xml") -Value $publishProfile -Encoding utf8
 
+    # Save credentials to files
+    $varValues = @"
+AZURE_FUNCTIONAPP_NAME=$($script:functionAppName)
+NEXT_PUBLIC_AZURE_TENANT_ID=$TenantId
+NEXT_PUBLIC_AZURE_CLIENT_ID=$AppClientId
+NEXT_PUBLIC_AZURE_REDIRECT_URI=$($script:dashboardUrl)
+NEXT_PUBLIC_API_BASE_URL=$($script:functionAppUrl)/api
+NEXT_PUBLIC_ADMIN_PRINCIPAL_ID=$AdminPrincipalId
+NEXT_PUBLIC_DEVELOPER_NAME=$trimmedDeveloperName
+"@
+    Set-Content -Path (Join-Path $secretsDir "github-variables.txt") -Value $varValues -Encoding utf8
+
     Write-Success "Deployment credentials retrieved"
     Write-Host ""
-    Write-Host "  ─── ACTION REQUIRED ────────────────────────────────────────" -ForegroundColor Yellow
-    Write-Host "  Add 2 secrets at: https://github.com/$GitHubRepo/settings/secrets/actions" -ForegroundColor Cyan
+    Write-Host "  ─── ACTION REQUIRED ─────────────────────────────────────────" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  STEP A: Add 2 Secrets" -ForegroundColor White
+    Write-Host "  https://github.com/$GitHubRepo/settings/secrets/actions" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  1. AZURE_STATIC_WEB_APPS_API_TOKEN" -ForegroundColor White
     Write-Host "     $(Join-Path $secretsDir 'AZURE_STATIC_WEB_APPS_API_TOKEN.txt')" -ForegroundColor Gray
@@ -532,8 +600,13 @@ else {
     Write-Host "  2. AZURE_FUNCTIONAPP_PUBLISH_PROFILE" -ForegroundColor White
     Write-Host "     $(Join-Path $secretsDir 'AZURE_FUNCTIONAPP_PUBLISH_PROFILE.xml')" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  After adding, push a commit or run workflows manually." -ForegroundColor Yellow
-    Write-Host "  ────────────────────────────────────────────────────────────" -ForegroundColor Yellow
+    Write-Host "  STEP B: Add 7 Repository Variables" -ForegroundColor White
+    Write-Host "  https://github.com/$GitHubRepo/settings/variables/actions" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  All values saved to: $(Join-Path $secretsDir 'github-variables.txt')" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  After adding, push a commit or run both workflows manually." -ForegroundColor Yellow
+    Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  TIP: Next time pass -GitHubToken to automate this step." -ForegroundColor Gray
 

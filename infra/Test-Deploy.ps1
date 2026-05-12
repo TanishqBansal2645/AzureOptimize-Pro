@@ -310,8 +310,8 @@ for ($i = 1; $i -le 3; $i++) {
 }
 
 if ($timings.Count -gt 0) {
-    $avgMs = ($timings | Measure-Object -Average).Average
-    $maxMs = ($timings | Measure-Object -Maximum).Maximum
+    $avgMs = [int]($timings | Measure-Object -Average).Average
+    $maxMs = [int]($timings | Measure-Object -Maximum).Maximum
     if ($avgMs -lt 3000) {
         Write-TestResult -Name "  Health endpoint response time (avg: ${avgMs}ms, max: ${maxMs}ms)" -Status "PASS"
     }

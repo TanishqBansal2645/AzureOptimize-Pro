@@ -23,10 +23,12 @@ jobs:
       - name: Build
         working-directory: frontend
         env:
-          NEXT_PUBLIC_AZURE_CLIENT_ID: 0f040abb-27b3-466b-8607-a001efe601b2
-          NEXT_PUBLIC_AZURE_TENANT_ID: a6fb798f-e860-4e9c-9af8-9f0766fbdcce
-          NEXT_PUBLIC_AZURE_REDIRECT_URI: https://red-sand-034cb380f.7.azurestaticapps.net
-          NEXT_PUBLIC_API_BASE_URL: https://func-azureoptimize-jmf62z.azurewebsites.net/api
+          NEXT_PUBLIC_AZURE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_AZURE_CLIENT_ID }}
+          NEXT_PUBLIC_AZURE_TENANT_ID: ${{ vars.NEXT_PUBLIC_AZURE_TENANT_ID }}
+          NEXT_PUBLIC_AZURE_REDIRECT_URI: ${{ vars.NEXT_PUBLIC_AZURE_REDIRECT_URI }}
+          NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          NEXT_PUBLIC_ADMIN_PRINCIPAL_ID: ${{ vars.NEXT_PUBLIC_ADMIN_PRINCIPAL_ID }}
+          NEXT_PUBLIC_DEVELOPER_NAME: ${{ vars.NEXT_PUBLIC_DEVELOPER_NAME }}
         run: |
           npm ci
           npm run build
