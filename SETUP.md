@@ -105,7 +105,7 @@ Both branding fields are always initialised (empty by default, with fallbacks) �
 
 #### Optional: Automate GitHub secrets and variables
 
-Pass `-GitHubToken` to have the script automatically set 2 GitHub secrets + 7 repository variables and trigger the first deployment:
+Pass `-GitHubToken` to have the script automatically create a GitHub Environment for this client, set 2 secrets + 7 variables inside it, and trigger the first deployment:
 
 ```powershell
 .\infra\Deploy-AzureCostOptimize.ps1 `
@@ -117,9 +117,10 @@ Pass `-GitHubToken` to have the script automatically set 2 GitHub secrets + 7 re
 
 PAT scopes needed: `repo` (classic) or Actions read/write (fine-grained). Install PyNaCl first: `pip install PyNaCl`
 
-Without `-GitHubToken`, the script saves all values to `%TEMP%\azopt-github-secrets\` and prints instructions to set them manually at:
-- Secrets: `https://github.com/TanishqBansal2645/AzureOptimize-Pro/settings/secrets/actions`
-- Variables: `https://github.com/TanishqBansal2645/AzureOptimize-Pro/settings/variables/actions`
+Each client gets its own GitHub Environment (named after the resource group, e.g. `rg-contoso`). Client credentials are fully isolated from each other inside the same repo. The `default` environment is also updated so that automatic deploys on push always target the most recently configured client.
+
+Without `-GitHubToken`, the script saves all values to `%TEMP%\azopt-github-secrets\` and prints step-by-step instructions to set up the environment manually at:
+`https://github.com/TanishqBansal2645/AzureOptimize-Pro/settings/environments`
 
 See the **GitHub Actions Secrets and Variables Required** section at the end of this guide for the full list.
 
@@ -246,19 +247,32 @@ az staticwebapp appsettings set `
 
 ## GitHub Actions Secrets and Variables Required
 
-The workflows need **2 encrypted secrets** and **7 plain repository variables**.
+Each client deployment uses a **GitHub Environment** — an isolated set of secrets and variables inside the same repo. No client can see or overwrite another client's values.
 
 All are set automatically when `-GitHubToken` is passed to the deploy script.  
-Without `-GitHubToken`, the script saves all values to `%TEMP%\azopt-github-secrets\` and prints URLs.
+Without `-GitHubToken`, the script saves all values to `%TEMP%\azopt-github-secrets\` and prints manual setup instructions.
 
-### Secrets — `Settings → Secrets and variables → Actions → Secrets`
+### Architecture: GitHub Environments
+
+The deploy script creates two environments per client deployment:
+
+| Environment | Used by | Purpose |
+|-------------|---------|---------|
+| `rg-{client}` (e.g. `rg-contoso`) | `workflow_dispatch` triggered by deploy script | Client-specific isolated credentials |
+| `default` | Push-triggered runs (no dispatch input) | Always updated to the most recently deployed client — ensures `git push` auto-deploys correctly |
+
+Workflows read `environment: ${{ inputs.client_environment \|\| 'default' }}`. When the deploy script triggers them it passes `client_environment: rg-contoso`; automatic push-triggered runs fall back to `default`.
+
+To re-deploy for a specific client after a code update: run the workflows manually from GitHub Actions → Run workflow → set `client_environment` to their environment name.
+
+### Secrets per environment — `Settings → Environments → {env} → Secrets`
 
 | Secret | What it is | How to get it manually |
 |--------|-----------|------------------------|
 | `AZURE_FUNCTIONAPP_PUBLISH_PROFILE` | Function App publish profile (XML) | `az functionapp deployment list-publishing-profiles --name <app> --resource-group <rg> --xml` |
 | `AZURE_STATIC_WEB_APPS_API_TOKEN` | Static Web App deploy token | `az staticwebapp secrets list --name <swa> --resource-group <rg> --query "properties.apiKey" -o tsv` |
 
-### Variables — `Settings → Secrets and variables → Actions → Variables`
+### Variables per environment — `Settings → Environments → {env} → Variables`
 
 | Variable | What it is |
 |----------|-----------|
@@ -270,14 +284,14 @@ Without `-GitHubToken`, the script saves all values to `%TEMP%\azopt-github-secr
 | `NEXT_PUBLIC_ADMIN_PRINCIPAL_ID` | Entra Object ID of the admin user |
 | `NEXT_PUBLIC_DEVELOPER_NAME` | (Optional) Developer name on login page footer |
 
-> **Why variables?** The `NEXT_PUBLIC_*` values are baked into the Next.js bundle at build time. They must be injected via workflow environment variables — not Azure settings — so the build produces a binary that connects to the right tenant and API.
+> **Why variables and not Azure settings?** The `NEXT_PUBLIC_*` values are baked into the Next.js bundle at build time. They must be injected via workflow environment variables — not Azure runtime settings — so the build produces a binary that connects to the right tenant and API.
 
 ### GitHub PAT scopes (for `-GitHubToken`)
 
 | PAT type | Required scopes |
 |----------|----------------|
-| Classic | `repo` (includes secrets, variables, workflows) |
-| Fine-grained | Repository → Actions: Read and write |
+| Classic | `repo` (includes secrets, variables, environments, workflows) |
+| Fine-grained | Repository → Actions: Read and write; Environments: Read and write |
 
 > Install PyNaCl before using `-GitHubToken`: `pip install PyNaCl`
 
@@ -286,7 +300,7 @@ Without `-GitHubToken`, the script saves all values to `%TEMP%\azopt-github-secr
 ## Troubleshooting
 
 ### Login page shows wrong tenant / "Sign-in failed" on fresh deploy
-The frontend `NEXT_PUBLIC_*` variables were not set before the GitHub Actions build ran. Check the repository variables at `Settings → Secrets and variables → Actions → Variables`. All 6 `NEXT_PUBLIC_*` variables must be present. If missing, set them and re-run the `Deploy Frontend` workflow manually.
+The frontend `NEXT_PUBLIC_*` variables were not set before the GitHub Actions build ran. Check the environment variables at `Settings → Environments → {your-environment} → Variables`. All 6 `NEXT_PUBLIC_*` variables must be present. If missing, set them and re-run the `Deploy Frontend` workflow manually (set `client_environment` to the environment name).
 
 ### API deploy fails: "Could not find app 'func-azureoptimize-xxx'"
 The `AZURE_FUNCTIONAPP_NAME` repository variable is missing or incorrect. Find the correct name:

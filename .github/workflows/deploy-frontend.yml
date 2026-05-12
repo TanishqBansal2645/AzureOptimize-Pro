@@ -7,10 +7,16 @@ on:
       - 'frontend/**'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
+    inputs:
+      client_environment:
+        description: 'Client environment name (set by deploy script, e.g. rg-contoso)'
+        required: false
+        default: 'default'
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.client_environment || 'default' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,11 +35,11 @@ jobs:
           [ -z "$API_BASE_URL" ]  && missing+=("NEXT_PUBLIC_API_BASE_URL")
           [ -z "$ADMIN_OID" ]     && missing+=("NEXT_PUBLIC_ADMIN_PRINCIPAL_ID")
           if [ ${#missing[@]} -gt 0 ]; then
-            echo "ERROR: Required GitHub repository variables are not set:"
+            echo "ERROR: Required variables not set in environment '${{ inputs.client_environment || 'default' }}':"
             for v in "${missing[@]}"; do echo "  - $v"; done
             echo ""
-            echo "Set them at: Settings → Secrets and variables → Actions → Variables"
-            echo "Then re-run this workflow."
+            echo "Set them via the deploy script (-GitHubToken) or manually at:"
+            echo "  Settings -> Environments -> ${{ inputs.client_environment || 'default' }} -> Variables"
             exit 1
           fi
           echo "All required variables are set."
@@ -47,12 +53,12 @@ jobs:
       - name: Build
         working-directory: frontend
         env:
-          NEXT_PUBLIC_AZURE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_AZURE_CLIENT_ID }}
-          NEXT_PUBLIC_AZURE_TENANT_ID: ${{ vars.NEXT_PUBLIC_AZURE_TENANT_ID }}
+          NEXT_PUBLIC_AZURE_CLIENT_ID:    ${{ vars.NEXT_PUBLIC_AZURE_CLIENT_ID }}
+          NEXT_PUBLIC_AZURE_TENANT_ID:    ${{ vars.NEXT_PUBLIC_AZURE_TENANT_ID }}
           NEXT_PUBLIC_AZURE_REDIRECT_URI: ${{ vars.NEXT_PUBLIC_AZURE_REDIRECT_URI }}
-          NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          NEXT_PUBLIC_API_BASE_URL:       ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
           NEXT_PUBLIC_ADMIN_PRINCIPAL_ID: ${{ vars.NEXT_PUBLIC_ADMIN_PRINCIPAL_ID }}
-          NEXT_PUBLIC_DEVELOPER_NAME: ${{ vars.NEXT_PUBLIC_DEVELOPER_NAME }}
+          NEXT_PUBLIC_DEVELOPER_NAME:     ${{ vars.NEXT_PUBLIC_DEVELOPER_NAME }}
         run: |
           npm ci
           npm run build

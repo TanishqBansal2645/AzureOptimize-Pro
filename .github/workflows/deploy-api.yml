@@ -7,10 +7,16 @@ on:
       - 'api/**'
       - '.github/workflows/deploy-api.yml'
   workflow_dispatch:
+    inputs:
+      client_environment:
+        description: 'Client environment name (set by deploy script, e.g. rg-contoso)'
+        required: false
+        default: 'default'
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.client_environment || 'default' }}
     steps:
       - uses: actions/checkout@v4
 

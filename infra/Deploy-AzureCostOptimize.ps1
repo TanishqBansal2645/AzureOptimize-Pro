@@ -38,6 +38,11 @@
 .PARAMETER GitHubRepo
     GitHub repo in owner/repo format. Default: TanishqBansal2645/AzureOptimize-Pro
 
+.PARAMETER ClientEnvironment
+    GitHub Environment name for this client deployment. Secrets and variables are stored
+    in this environment (isolated from other clients). Defaults to ResourceGroupName.
+    Example: rg-contoso, rg-fabrikam
+
 .PARAMETER CompanyName
     Optional company/client name displayed in the sidebar and header of the dashboard.
     If omitted, the Azure AD tenant display name is used automatically.
@@ -82,6 +87,7 @@ param(
     [string] $ResourceGroupName = "rg-azureoptimize",
     [string] $GitHubToken = "",
     [string] $GitHubRepo = "TanishqBansal2645/AzureOptimize-Pro",
+    [string] $ClientEnvironment = "",
     [string] $CompanyName = "",
     [string] $DeveloperName = "",
 
@@ -92,6 +98,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+
+if (-not $ClientEnvironment) { $ClientEnvironment = $ResourceGroupName }
 
 # ─── Helper Functions ─────────────────────────────────────────────────────────
 
@@ -124,12 +132,26 @@ function Show-Banner {
     Write-Host ""
 }
 
+function New-GitHubEnvironment {
+    param([string] $Token, [string] $Repo, [string] $EnvName)
+    $headers = @{
+        Authorization          = "Bearer $Token"
+        Accept                 = "application/vnd.github.v3+json"
+        "User-Agent"           = "AzureOptimize-Deploy"
+        "X-GitHub-Api-Version" = "2022-11-28"
+    }
+    Invoke-RestMethod -Method PUT `
+        -Uri "https://api.github.com/repos/$Repo/environments/$EnvName" `
+        -Headers $headers -Body '{}' -ContentType "application/json" | Out-Null
+}
+
 function Set-GitHubVariable {
     param(
         [string] $Token,
         [string] $Repo,
         [string] $Name,
-        [string] $Value
+        [string] $Value,
+        [string] $EnvName = ""
     )
     $headers = @{
         Authorization          = "Bearer $Token"
@@ -138,15 +160,21 @@ function Set-GitHubVariable {
         "X-GitHub-Api-Version" = "2022-11-28"
     }
     $body = @{ name = $Name; value = $Value } | ConvertTo-Json -Compress
+    # Route to environment-scoped or repo-level URL
+    if ($EnvName) {
+        $baseUrl = "https://api.github.com/repos/$Repo/environments/$EnvName/variables"
+    } else {
+        $baseUrl = "https://api.github.com/repos/$Repo/actions/variables"
+    }
     # Try PATCH (update existing), fall back to POST (create new)
     try {
         Invoke-RestMethod -Method PATCH `
-            -Uri "https://api.github.com/repos/$Repo/actions/variables/$Name" `
+            -Uri "$baseUrl/$Name" `
             -Headers $headers -Body $body -ContentType "application/json" | Out-Null
     }
     catch {
         Invoke-RestMethod -Method POST `
-            -Uri "https://api.github.com/repos/$Repo/actions/variables" `
+            -Uri $baseUrl `
             -Headers $headers -Body $body -ContentType "application/json" | Out-Null
     }
 }
@@ -156,25 +184,30 @@ function Set-GitHubSecret {
         [string] $Token,
         [string] $Repo,
         [string] $Name,
-        [string] $Value
+        [string] $Value,
+        [string] $EnvName = ""
     )
 
     $pythonCode = @'
 import sys, json, base64, urllib.request
 from nacl.public import SealedBox, PublicKey
 token, repo, name = sys.argv[1], sys.argv[2], sys.argv[3]
+env_name = sys.argv[4] if len(sys.argv) > 4 else ""
 value = sys.stdin.buffer.read()
-req = urllib.request.Request(
-    f"https://api.github.com/repos/{repo}/actions/secrets/public-key",
-    headers={"Authorization": f"Bearer {token}", "User-Agent": "AzureOptimize-Deploy"})
+if env_name:
+    pk_url = f"https://api.github.com/repos/{repo}/environments/{env_name}/secrets/public-key"
+    secret_url = f"https://api.github.com/repos/{repo}/environments/{env_name}/secrets/{name}"
+else:
+    pk_url = f"https://api.github.com/repos/{repo}/actions/secrets/public-key"
+    secret_url = f"https://api.github.com/repos/{repo}/actions/secrets/{name}"
+req = urllib.request.Request(pk_url, headers={"Authorization": f"Bearer {token}", "User-Agent": "AzureOptimize-Deploy"})
 with urllib.request.urlopen(req) as r:
     pk = json.loads(r.read())
 box = SealedBox(PublicKey(base64.b64decode(pk["key"])))
 enc = base64.b64encode(box.encrypt(value)).decode()
 data = json.dumps({"encrypted_value": enc, "key_id": pk["key_id"]}).encode()
 urllib.request.urlopen(urllib.request.Request(
-    f"https://api.github.com/repos/{repo}/actions/secrets/{name}",
-    data=data, method="PUT",
+    secret_url, data=data, method="PUT",
     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
              "User-Agent": "AzureOptimize-Deploy"}))
 '@
@@ -184,7 +217,7 @@ urllib.request.urlopen(urllib.request.Request(
 
     try {
         $valueBytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
-        $result = $valueBytes | python $pyScript $Token $Repo $Name 2>&1
+        $result = $valueBytes | python $pyScript $Token $Repo $Name $EnvName 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "Exit code $LASTEXITCODE`: $result"
         }
@@ -510,13 +543,30 @@ $deployToken = az staticwebapp secrets list --name $swaName --resource-group $Re
 $publishProfile = az functionapp deployment list-publishing-profiles --name $script:functionAppName --resource-group $ResourceGroupName --xml
 
 if ($GitHubToken) {
-    Write-Host "  Setting GitHub secrets..." -ForegroundColor Gray
+    $ghHeaders = @{
+        Authorization          = "Bearer $GitHubToken"
+        Accept                 = "application/vnd.github.v3+json"
+        "X-GitHub-Api-Version" = "2022-11-28"
+    }
 
+    Write-Host "  Creating GitHub environments '$ClientEnvironment' and 'default'..." -ForegroundColor Gray
     try {
-        Set-GitHubSecret -Token $GitHubToken -Repo $GitHubRepo -Name "AZURE_STATIC_WEB_APPS_API_TOKEN" -Value $deployToken
-        Write-Host "  v AZURE_STATIC_WEB_APPS_API_TOKEN" -ForegroundColor Green
+        New-GitHubEnvironment -Token $GitHubToken -Repo $GitHubRepo -EnvName $ClientEnvironment
+        New-GitHubEnvironment -Token $GitHubToken -Repo $GitHubRepo -EnvName "default"
+        Write-Host "  v Environments ready" -ForegroundColor Green
+    }
+    catch {
+        Write-Warn "Could not create GitHub environments: $_"
+    }
 
-        Set-GitHubSecret -Token $GitHubToken -Repo $GitHubRepo -Name "AZURE_FUNCTIONAPP_PUBLISH_PROFILE" -Value $publishProfile
+    Write-Host "  Setting GitHub secrets..." -ForegroundColor Gray
+    try {
+        # Set secrets in client-specific environment AND in 'default' (for push-triggered deploys)
+        foreach ($envTarget in @($ClientEnvironment, "default")) {
+            Set-GitHubSecret -Token $GitHubToken -Repo $GitHubRepo -Name "AZURE_STATIC_WEB_APPS_API_TOKEN" -Value $deployToken -EnvName $envTarget
+            Set-GitHubSecret -Token $GitHubToken -Repo $GitHubRepo -Name "AZURE_FUNCTIONAPP_PUBLISH_PROFILE" -Value $publishProfile -EnvName $envTarget
+        }
+        Write-Host "  v AZURE_STATIC_WEB_APPS_API_TOKEN" -ForegroundColor Green
         Write-Host "  v AZURE_FUNCTIONAPP_PUBLISH_PROFILE" -ForegroundColor Green
     }
     catch {
@@ -525,8 +575,8 @@ if ($GitHubToken) {
         exit 1
     }
 
-    Write-Host "  Setting GitHub repository variables..." -ForegroundColor Gray
-    $repoVars = [ordered]@{
+    Write-Host "  Setting GitHub environment variables..." -ForegroundColor Gray
+    $envVars = [ordered]@{
         "AZURE_FUNCTIONAPP_NAME"         = $script:functionAppName
         "NEXT_PUBLIC_AZURE_TENANT_ID"    = $TenantId
         "NEXT_PUBLIC_AZURE_CLIENT_ID"    = $AppClientId
@@ -534,11 +584,14 @@ if ($GitHubToken) {
         "NEXT_PUBLIC_API_BASE_URL"       = "$($script:functionAppUrl)/api"
         "NEXT_PUBLIC_ADMIN_PRINCIPAL_ID" = $AdminPrincipalId
     }
-    if ($trimmedDeveloperName) { $repoVars["NEXT_PUBLIC_DEVELOPER_NAME"] = $trimmedDeveloperName }
+    if ($trimmedDeveloperName) { $envVars["NEXT_PUBLIC_DEVELOPER_NAME"] = $trimmedDeveloperName }
 
-    foreach ($varName in $repoVars.Keys) {
+    foreach ($varName in $envVars.Keys) {
         try {
-            Set-GitHubVariable -Token $GitHubToken -Repo $GitHubRepo -Name $varName -Value $repoVars[$varName]
+            # Set in client-specific environment AND in 'default' so push-triggered deploys work
+            foreach ($envTarget in @($ClientEnvironment, "default")) {
+                Set-GitHubVariable -Token $GitHubToken -Repo $GitHubRepo -Name $varName -Value $envVars[$varName] -EnvName $envTarget
+            }
             Write-Host "  v $varName" -ForegroundColor Green
         }
         catch {
@@ -546,17 +599,13 @@ if ($GitHubToken) {
         }
     }
 
-    Write-Host "  Triggering deployment workflows..." -ForegroundColor Gray
-    $ghHeaders = @{
-        Authorization          = "Bearer $GitHubToken"
-        Accept                 = "application/vnd.github.v3+json"
-        "X-GitHub-Api-Version" = "2022-11-28"
-    }
+    Write-Host "  Triggering deployment workflows (environment: $ClientEnvironment)..." -ForegroundColor Gray
+    $dispatchBody = @{ ref = "main"; inputs = @{ client_environment = $ClientEnvironment } } | ConvertTo-Json -Compress
     try {
         Invoke-RestMethod -Method POST -Uri "https://api.github.com/repos/$GitHubRepo/actions/workflows/deploy-api.yml/dispatches" `
-            -Headers $ghHeaders -Body '{"ref":"main"}' -ContentType "application/json" | Out-Null
+            -Headers $ghHeaders -Body $dispatchBody -ContentType "application/json" | Out-Null
         Invoke-RestMethod -Method POST -Uri "https://api.github.com/repos/$GitHubRepo/actions/workflows/deploy-frontend.yml/dispatches" `
-            -Headers $ghHeaders -Body '{"ref":"main"}' -ContentType "application/json" | Out-Null
+            -Headers $ghHeaders -Body $dispatchBody -ContentType "application/json" | Out-Null
         Write-Success "Deployment workflows triggered"
         Write-Host "  Track progress: https://github.com/$GitHubRepo/actions" -ForegroundColor Gray
         Write-Host "  Waiting 4 minutes for deployment to complete..." -ForegroundColor Gray
@@ -575,7 +624,6 @@ else {
     Set-Content -Path (Join-Path $secretsDir "AZURE_STATIC_WEB_APPS_API_TOKEN.txt") -Value $deployToken -Encoding utf8
     Set-Content -Path (Join-Path $secretsDir "AZURE_FUNCTIONAPP_PUBLISH_PROFILE.xml") -Value $publishProfile -Encoding utf8
 
-    # Save credentials to files
     $varValues = @"
 AZURE_FUNCTIONAPP_NAME=$($script:functionAppName)
 NEXT_PUBLIC_AZURE_TENANT_ID=$TenantId
@@ -591,8 +639,10 @@ NEXT_PUBLIC_DEVELOPER_NAME=$trimmedDeveloperName
     Write-Host ""
     Write-Host "  ─── ACTION REQUIRED ─────────────────────────────────────────" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  STEP A: Add 2 Secrets" -ForegroundColor White
-    Write-Host "  https://github.com/$GitHubRepo/settings/secrets/actions" -ForegroundColor Cyan
+    Write-Host "  STEP A: Create a GitHub Environment named '$ClientEnvironment'" -ForegroundColor White
+    Write-Host "  https://github.com/$GitHubRepo/settings/environments" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  STEP B: Add 2 Secrets to the '$ClientEnvironment' environment" -ForegroundColor White
     Write-Host ""
     Write-Host "  1. AZURE_STATIC_WEB_APPS_API_TOKEN" -ForegroundColor White
     Write-Host "     $(Join-Path $secretsDir 'AZURE_STATIC_WEB_APPS_API_TOKEN.txt')" -ForegroundColor Gray
@@ -600,12 +650,15 @@ NEXT_PUBLIC_DEVELOPER_NAME=$trimmedDeveloperName
     Write-Host "  2. AZURE_FUNCTIONAPP_PUBLISH_PROFILE" -ForegroundColor White
     Write-Host "     $(Join-Path $secretsDir 'AZURE_FUNCTIONAPP_PUBLISH_PROFILE.xml')" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  STEP B: Add 7 Repository Variables" -ForegroundColor White
-    Write-Host "  https://github.com/$GitHubRepo/settings/variables/actions" -ForegroundColor Cyan
-    Write-Host ""
+    Write-Host "  STEP C: Add 7 Variables to the '$ClientEnvironment' environment" -ForegroundColor White
     Write-Host "  All values saved to: $(Join-Path $secretsDir 'github-variables.txt')" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  After adding, push a commit or run both workflows manually." -ForegroundColor Yellow
+    Write-Host "  STEP D: Also create a 'default' environment with the same secrets and variables" -ForegroundColor White
+    Write-Host "  (enables automatic redeploy on git push to main)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  STEP E: Trigger the workflows manually, passing client_environment = $ClientEnvironment" -ForegroundColor White
+    Write-Host "  https://github.com/$GitHubRepo/actions/workflows/deploy-api.yml" -ForegroundColor Cyan
+    Write-Host "  https://github.com/$GitHubRepo/actions/workflows/deploy-frontend.yml" -ForegroundColor Cyan
     Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  TIP: Next time pass -GitHubToken to automate this step." -ForegroundColor Gray
