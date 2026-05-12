@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Deploys AzureOptimize Pro to a client Azure tenant.
 
@@ -101,7 +101,7 @@ $ProgressPreference = "SilentlyContinue"
 
 if (-not $ClientEnvironment) { $ClientEnvironment = $ResourceGroupName }
 
-# ─── Helper Functions ─────────────────────────────────────────────────────────
+# --- Helper Functions ---------------------------------------------------------
 
 function Write-Step {
     param([int]$Step, [int]$Total, [string]$Message)
@@ -227,7 +227,7 @@ urllib.request.urlopen(urllib.request.Request(
     }
 }
 
-# ─── Role Assignment Helpers (use az rest — az role assignment is unreliable) ──
+# --- Role Assignment Helpers (use az rest  -  az role assignment is unreliable) --
 # Uses deterministic UUIDs so re-running the script never creates duplicate assignments.
 
 function Add-RoleAssignment {
@@ -236,24 +236,28 @@ function Add-RoleAssignment {
         [string] $RoleDefinitionId,   # Built-in role GUID (stable across all tenants)
         [string] $Scope               # e.g. /subscriptions/xxx
     )
-    # Deterministic assignment ID: same principal+role+scope always = same GUID (idempotent)
-    $seed  = "$PrincipalId|$RoleDefinitionId|$Scope"
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($seed)
-    $hash  = [System.Security.Cryptography.MD5]::Create().ComputeHash($bytes)
-    $hash[6] = ($hash[6] -band 0x0F) -bor 0x30   # version 3
-    $hash[8] = ($hash[8] -band 0x3F) -bor 0x80   # variant RFC 4122
-    $assignmentId = [System.Guid]::new($hash).ToString()
+    # Temporarily relax ErrorActionPreference so az.exe stderr doesn't throw NativeCommandError
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $output = az role assignment create `
+        --assignee-object-id $PrincipalId `
+        --role $RoleDefinitionId `
+        --scope $Scope `
+        --assignee-principal-type ServicePrincipal `
+        --output none 2>&1
+    $ec = $LASTEXITCODE
+    $ErrorActionPreference = $prev
 
-    $bodyObj = [ordered]@{
-        properties = [ordered]@{
-            roleDefinitionId = "${Scope}/providers/Microsoft.Authorization/roleDefinitions/${RoleDefinitionId}"
-            principalId      = $PrincipalId
-            principalType    = "ServicePrincipal"
-        }
-    }
-    $body = $bodyObj | ConvertTo-Json -Compress -Depth 3
-    $url  = "https://management.azure.com${Scope}/providers/Microsoft.Authorization/roleAssignments/${assignmentId}?api-version=2022-04-01"
-    az rest --method PUT --url $url --body $body --headers "Content-Type=application/json" --output none 2>$null
+    if ($ec -eq 0) { return $true }
+
+    $msg = ($output | Out-String).Trim()
+    # Idempotent success — assignment already exists
+    if ($msg -match 'RoleAssignmentExists') { return $true }
+    # Subscription inaccessible from current auth context — caller should skip entire sub
+    if ($msg -match 'SubscriptionNotFound' -or $msg -match 'AuthorizationFailed' -or $msg -match 'InvalidAuthenticationTokenTenant') { return $false }
+    # Role doesn't exist on this subscription type (e.g. Cost Management on VS subs) — skip this role only
+    if ($msg -match 'RoleDefinitionDoesNotExist') { return $true }
+    throw $msg
 }
 
 function Remove-MIRoleAssignments {
@@ -262,16 +266,16 @@ function Remove-MIRoleAssignments {
         [string] $SubscriptionId
     )
     $url      = "https://management.azure.com/subscriptions/${SubscriptionId}/providers/Microsoft.Authorization/roleAssignments?`$filter=principalId eq '${PrincipalId}'&api-version=2022-04-01"
-    $response = az rest --method GET --url $url 2>$null | ConvertFrom-Json
+    $response = az rest --method GET --url $url 2>&1 | Where-Object { $_ -notmatch '^WARNING' } | ConvertFrom-Json -ErrorAction SilentlyContinue
     if ($response -and $response.value) {
         foreach ($ra in $response.value) {
             $delUrl = "https://management.azure.com$($ra.id)?api-version=2022-04-01"
-            az rest --method DELETE --url $delUrl --output none 2>$null
+            az rest --method DELETE --url $delUrl --output none 2>&1 | Out-Null
         }
     }
 }
 
-# ─── Remove Mode ──────────────────────────────────────────────────────────────
+# --- Remove Mode --------------------------------------------------------------
 
 if ($Remove) {
     Show-Banner
@@ -283,11 +287,14 @@ if ($Remove) {
     }
 
     Write-Host "`nLogging in to tenant $TenantId..." -ForegroundColor Cyan
-    az login --tenant $TenantId --output none
+    $currentTenant = az account show --query "tenantId" -o tsv 2>$null
+    if ($currentTenant -ne $TenantId) { az login --tenant $TenantId --output none }
 
     Write-Host "Removing role assignments for Managed Identity..." -ForegroundColor Cyan
-    $subscriptions = az account list --query "[?tenantId=='$TenantId'].id" -o tsv
-    $miPrincipalId = az identity list --resource-group $ResourceGroupName --query "[?starts_with(name, 'mi-azureoptimize')].principalId" -o tsv 2>$null
+    $subscriptions = (az account list --output json --only-show-errors | ConvertFrom-Json |
+        Where-Object { $_.tenantId -eq $TenantId }).id
+    $miPrincipalId = (az identity list --resource-group $ResourceGroupName --output json 2>$null |
+        ConvertFrom-Json | Where-Object { $_.name -like 'mi-azureoptimize*' }).principalId
     if ($miPrincipalId) {
         foreach ($subId in ($subscriptions -split "`n" | Where-Object { $_.Trim() })) {
             Remove-MIRoleAssignments -PrincipalId $miPrincipalId.Trim() -SubscriptionId $subId.Trim()
@@ -300,7 +307,7 @@ if ($Remove) {
     exit 0
 }
 
-# ─── Pre-flight checks ────────────────────────────────────────────────────────
+# --- Pre-flight checks --------------------------------------------------------
 
 Show-Banner
 Write-Host "Running pre-flight checks..." -ForegroundColor Cyan
@@ -351,7 +358,7 @@ $totalSteps = 6
 $trimmedCompanyName  = $CompanyName.Trim()
 $trimmedDeveloperName = $DeveloperName.Trim()
 
-# ─── Step 1: Login ────────────────────────────────────────────────────────────
+# --- Step 1: Login ------------------------------------------------------------
 
 Write-Step 1 $totalSteps "Logging in to Azure tenant"
 try {
@@ -366,7 +373,7 @@ catch {
     exit 1
 }
 
-# ─── Steps 2–3: Infrastructure (skip if -Update) ──────────────────────────────
+# --- Steps 2-3: Infrastructure (skip if -Update) ------------------------------
 
 if (-not $Update) {
     Write-Step 2 $totalSteps "Provisioning infrastructure (Bicep)"
@@ -404,21 +411,23 @@ if (-not $Update) {
 
     Write-Step 3 $totalSteps "Assigning roles on all subscriptions"
     try {
-        $subscriptions = az account list --query "[?state=='Enabled' && tenantId=='$TenantId'].id" -o tsv
+        $subscriptions = (az account list --output json --only-show-errors | ConvertFrom-Json |
+            Where-Object { $_.state -eq 'Enabled' -and $_.tenantId -eq $TenantId }).id
         $assignedCount = 0
         foreach ($subId in ($subscriptions -split "`n" | Where-Object { $_ -and $_.Trim() })) {
             $subId = $subId.Trim()
             try {
                 $miId  = $script:managedIdentityPrincipalId
                 $scope = "/subscriptions/$subId"
-                # Reader — resource inspection across all subscriptions
-                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "acdd72a7-3385-48ef-bd42-f606fba81ae7" -Scope $scope
-                # Cost Management Reader — billing and cost data
-                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "72fafb9e-0641-4937-9268-a91bfd8191a6" -Scope $scope
-                # Monitoring Reader — Azure Monitor metrics
-                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "43d0d8ad-25c7-4714-9337-8ba259a9fe05" -Scope $scope
-                # Contributor — write operations for automated remediation (VM resize, AHB, disk downgrade, etc.)
-                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "b24988ac-6180-42a0-ab88-20f7382dd24c" -Scope $scope
+                # Reader  -  resource inspection across all subscriptions
+                $ok = Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "acdd72a7-3385-48ef-bd42-f606fba81ae7" -Scope $scope
+                if ($ok -eq $false) { continue }   # inaccessible subscription — skip silently
+                # Cost Management Reader  -  billing and cost data
+                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "72fafb9e-0641-4937-9268-a91bfd8191a6" -Scope $scope | Out-Null
+                # Monitoring Reader  -  Azure Monitor metrics
+                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "43d0d8ad-25c7-4714-9337-8ba259a9fe05" -Scope $scope | Out-Null
+                # Contributor  -  write operations for automated remediation (VM resize, AHB, disk downgrade, etc.)
+                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "b24988ac-6180-42a0-ab88-20f7382dd24c" -Scope $scope | Out-Null
                 $assignedCount++
             }
             catch {
@@ -440,15 +449,24 @@ else {
             --output json 2>$null | ConvertFrom-Json
 
         if (-not $deployOutput) {
-            $script:functionAppName = az functionapp list --resource-group $ResourceGroupName --query "[?starts_with(name,'func-azureoptimize')].name" -o tsv
-            if (-not $script:functionAppName) { $script:functionAppName = az functionapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv }
-            $script:functionAppUrl = "https://$($script:functionAppName).azurewebsites.net"
-            $script:dashboardUrl = "https://$(az staticwebapp list --resource-group $ResourceGroupName --query "[?starts_with(name,'swa-azureoptimize')].defaultHostname" -o tsv)"
-            if ($script:dashboardUrl -eq "https://") { $script:dashboardUrl = "https://$(az staticwebapp list --resource-group $ResourceGroupName --query '[0].defaultHostname' -o tsv)" }
-            $script:storageAccountName = az storage account list --resource-group $ResourceGroupName --query "[?starts_with(name,'stazopt')].name" -o tsv
-            if (-not $script:storageAccountName) { $script:storageAccountName = az storage account list --resource-group $ResourceGroupName --query "[0].name" -o tsv }
-            $script:keyVaultUri = az keyvault list --resource-group $ResourceGroupName --query "[?starts_with(name,'kv-azopt')].properties.vaultUri" -o tsv
-            if (-not $script:keyVaultUri) { $script:keyVaultUri = az keyvault list --resource-group $ResourceGroupName --query "[0].properties.vaultUri" -o tsv }
+            $faList  = az functionapp list     --resource-group $ResourceGroupName --output json 2>$null | ConvertFrom-Json
+            $swaList = az staticwebapp list    --resource-group $ResourceGroupName --output json 2>$null | ConvertFrom-Json
+            $stList  = az storage account list --resource-group $ResourceGroupName --output json 2>$null | ConvertFrom-Json
+            $kvList  = az keyvault list        --resource-group $ResourceGroupName --output json 2>$null | ConvertFrom-Json
+            $faMatch  = $faList  | Where-Object { $_.name -like 'func-azureoptimize*' } | Select-Object -First 1
+            $swaMatch = $swaList | Where-Object { $_.name -like 'swa-azureoptimize*'  } | Select-Object -First 1
+            $stMatch  = $stList  | Where-Object { $_.name -like 'stazopt*'            } | Select-Object -First 1
+            $kvMatch  = $kvList  | Where-Object { $_.name -like 'kv-azopt*'           } | Select-Object -First 1
+            if (-not $faMatch)  { $faMatch  = $faList[0]  }
+            if (-not $swaMatch) { $swaMatch = $swaList[0] }
+            if (-not $stMatch)  { $stMatch  = $stList[0]  }
+            if (-not $kvMatch)  { $kvMatch  = $kvList[0]  }
+            $script:functionAppName    = $faMatch.name
+            $script:functionAppUrl     = "https://$($script:functionAppName).azurewebsites.net"
+            $swaHost                   = $swaMatch.defaultHostname
+            $script:dashboardUrl       = "https://$swaHost"
+            $script:storageAccountName = $stMatch.name
+            $script:keyVaultUri        = $kvMatch.properties.vaultUri
         }
         else {
             $outputs = $deployOutput.properties.outputs
@@ -466,20 +484,23 @@ else {
 
     Write-Step 3 $totalSteps "Re-applying role assignments on all subscriptions"
     try {
-        $miPrincipalId = az identity list --resource-group $ResourceGroupName --query "[?starts_with(name,'mi-azureoptimize')].principalId" -o tsv 2>$null
+        $miPrincipalId = (az identity list --resource-group $ResourceGroupName --output json 2>$null |
+            ConvertFrom-Json | Where-Object { $_.name -like 'mi-azureoptimize*' }).principalId
         if ($miPrincipalId) {
             $script:managedIdentityPrincipalId = $miPrincipalId.Trim()
-            $subscriptions = az account list --query "[?state=='Enabled' && tenantId=='$TenantId'].id" -o tsv
+            $subscriptions = (az account list --output json --only-show-errors | ConvertFrom-Json |
+                Where-Object { $_.state -eq 'Enabled' -and $_.tenantId -eq $TenantId }).id
             $assignedCount = 0
             foreach ($subId in ($subscriptions -split "`n" | Where-Object { $_ -and $_.Trim() })) {
                 $subId = $subId.Trim()
                 try {
                     $miId  = $script:managedIdentityPrincipalId
                     $scope = "/subscriptions/$subId"
-                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "acdd72a7-3385-48ef-bd42-f606fba81ae7" -Scope $scope
-                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "72fafb9e-0641-4937-9268-a91bfd8191a6" -Scope $scope
-                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "43d0d8ad-25c7-4714-9337-8ba259a9fe05" -Scope $scope
-                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "b24988ac-6180-42a0-ab88-20f7382dd24c" -Scope $scope
+                    $ok = Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "acdd72a7-3385-48ef-bd42-f606fba81ae7" -Scope $scope
+                    if ($ok -eq $false) { continue }   # inaccessible subscription — skip silently
+                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "72fafb9e-0641-4937-9268-a91bfd8191a6" -Scope $scope | Out-Null
+                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "43d0d8ad-25c7-4714-9337-8ba259a9fe05" -Scope $scope | Out-Null
+                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "b24988ac-6180-42a0-ab88-20f7382dd24c" -Scope $scope | Out-Null
                     $assignedCount++
                 }
                 catch {
@@ -489,7 +510,7 @@ else {
             Write-Success "Roles verified on $assignedCount subscription(s)"
         }
         else {
-            Write-Warn "Could not find Managed Identity in '$ResourceGroupName' — skipping RBAC re-apply"
+            Write-Warn "Could not find Managed Identity in '$ResourceGroupName'  -  skipping RBAC re-apply"
         }
     }
     catch {
@@ -497,7 +518,7 @@ else {
     }
 }
 
-# ─── Branding (optional — update mode only; fresh installs go via Bicep) ──────
+# --- Branding (optional  -  update mode only; fresh installs go via Bicep) ------
 
 if ($Update) {
     $swaNameForBranding = az staticwebapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv 2>$null
@@ -529,12 +550,12 @@ if ($Update) {
     }
 }
 
-# ─── Step 4: Configure GitHub Actions deployment ──────────────────────────────
+# --- Step 4: Configure GitHub Actions deployment ------------------------------
 
 Write-Step 4 $totalSteps "Configuring GitHub Actions deployment"
 
 if ($Update) {
-    Write-Success "Skipped (update mode — existing GitHub secrets unchanged)"
+    Write-Success "Skipped (update mode  -  existing GitHub secrets unchanged)"
 }
 else {
 
@@ -637,7 +658,7 @@ NEXT_PUBLIC_DEVELOPER_NAME=$trimmedDeveloperName
 
     Write-Success "Deployment credentials retrieved"
     Write-Host ""
-    Write-Host "  ─── ACTION REQUIRED ─────────────────────────────────────────" -ForegroundColor Yellow
+    Write-Host "  --- ACTION REQUIRED -----------------------------------------" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  STEP A: Create a GitHub Environment named '$ClientEnvironment'" -ForegroundColor White
     Write-Host "  https://github.com/$GitHubRepo/settings/environments" -ForegroundColor Cyan
@@ -659,7 +680,7 @@ NEXT_PUBLIC_DEVELOPER_NAME=$trimmedDeveloperName
     Write-Host "  STEP E: Trigger the workflows manually, passing client_environment = $ClientEnvironment" -ForegroundColor White
     Write-Host "  https://github.com/$GitHubRepo/actions/workflows/deploy-api.yml" -ForegroundColor Cyan
     Write-Host "  https://github.com/$GitHubRepo/actions/workflows/deploy-frontend.yml" -ForegroundColor Cyan
-    Write-Host "  ─────────────────────────────────────────────────────────────" -ForegroundColor Yellow
+    Write-Host "  -------------------------------------------------------------" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  TIP: Next time pass -GitHubToken to automate this step." -ForegroundColor Gray
 
@@ -672,7 +693,7 @@ NEXT_PUBLIC_DEVELOPER_NAME=$trimmedDeveloperName
 
 } # end if (-not $Update) for Step 4
 
-# ─── Step 5: Health check ─────────────────────────────────────────────────────
+# --- Step 5: Health check -----------------------------------------------------
 
 Write-Step 5 $totalSteps "API health check"
 $maxRetries = 8
@@ -704,7 +725,7 @@ if (-not $healthOk) {
     Write-Host "  Check deployment logs: https://github.com/$GitHubRepo/actions" -ForegroundColor Gray
 }
 
-# ─── Step 6: Smoke tests ──────────────────────────────────────────────────────
+# --- Step 6: Smoke tests ------------------------------------------------------
 
 if (-not $SkipTests) {
     Write-Step 6 $totalSteps "Running automated smoke tests"
@@ -729,7 +750,7 @@ else {
     Write-Success "Skipped"
 }
 
-# ─── Summary ─────────────────────────────────────────────────────────────────
+# --- Summary -----------------------------------------------------------------
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Green
@@ -765,3 +786,4 @@ if (-not $Update) {
 }
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
+

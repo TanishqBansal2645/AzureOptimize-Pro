@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Automated smoke tests for a deployed AzureOptimize Pro instance.
 
@@ -31,7 +31,7 @@ param(
     [Parameter(Mandatory = $false)]
     [string] $TenantId = "",
 
-    [switch] $Verbose
+    [switch] $ShowDetail
 )
 
 $ErrorActionPreference = "Continue"
@@ -57,7 +57,7 @@ function Write-TestResult {
         default { "-" }
     }
     Write-Host "  [$icon] $Name" -ForegroundColor $color
-    if ($Detail -and $Verbose) {
+    if ($Detail -and $ShowDetail) {
         Write-Host "      $Detail" -ForegroundColor Gray
     }
     $script:results += [PSCustomObject]@{ Name = $Name; Status = $Status; Detail = $Detail }
@@ -145,7 +145,7 @@ function Invoke-ApiTest {
     }
 }
 
-# ─── Test Suite ───────────────────────────────────────────────────────────────
+# --- Test Suite ---------------------------------------------------------------
 
 Write-Host ""
 Write-Host "  AzureOptimize Pro - Automated Smoke Tests" -ForegroundColor Blue
@@ -326,16 +326,16 @@ else {
     Write-TestResult -Name "  Response time check" -Status "FAIL" -Detail "Could not reach health endpoint"
 }
 
-# ─── Summary ──────────────────────────────────────────────────────────────────
+# --- Summary ------------------------------------------------------------------
 
 $total = $script:passed + $script:failed + $script:warned
 Write-Host ""
-Write-Host "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Blue
+Write-Host "  ====================================================" -ForegroundColor Blue
 Write-Host "  Test Results: $total total" -ForegroundColor Blue
 Write-Host "  Passed : $($script:passed)" -ForegroundColor Green
 Write-Host "  Warnings: $($script:warned)" -ForegroundColor Yellow
 Write-Host "  Failed : $($script:failed)" -ForegroundColor Red
-Write-Host "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Blue
+Write-Host "  ====================================================" -ForegroundColor Blue
 Write-Host ""
 
 if ($script:failed -gt 0) {

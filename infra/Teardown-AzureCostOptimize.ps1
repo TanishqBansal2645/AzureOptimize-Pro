@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Completely removes AzureOptimize Pro from an Azure tenant.
 
@@ -44,7 +44,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-# ─── Banner ───────────────────────────────────────────────────────────────────
+# --- Banner -------------------------------------------------------------------
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Red
@@ -68,7 +68,7 @@ if ($confirm -ne 'DELETE') {
     exit 0
 }
 
-# ─── Login ────────────────────────────────────────────────────────────────────
+# --- Login --------------------------------------------------------------------
 
 Write-Host "`nLogging in to tenant $TenantId..." -ForegroundColor Cyan
 try {
@@ -83,7 +83,7 @@ catch {
     exit 1
 }
 
-# ─── Step 1: Check resource group exists ──────────────────────────────────────
+# --- Step 1: Check resource group exists --------------------------------------
 
 Write-Host "`n[1/4] Checking resource group..." -ForegroundColor Cyan
 $rgExists = az group exists --name $ResourceGroupName
@@ -94,7 +94,7 @@ else {
     Write-Host "  Found resource group '$ResourceGroupName'." -ForegroundColor Green
 }
 
-# ─── Step 2: Remove role assignments for Managed Identity ─────────────────────
+# --- Step 2: Remove role assignments for Managed Identity ---------------------
 
 Write-Host "`n[2/4] Removing Managed Identity role assignments across all subscriptions..." -ForegroundColor Cyan
 
@@ -128,13 +128,13 @@ else {
     Write-Host "  Skipped (resource group not found)." -ForegroundColor Gray
 }
 
-# ─── Step 3: Delete resource group ────────────────────────────────────────────
+# --- Step 3: Delete resource group --------------------------------------------
 
 Write-Host "`n[3/4] Deleting resource group '$ResourceGroupName'..." -ForegroundColor Cyan
 
 if ($rgExists -eq "true") {
     try {
-        Write-Host "  This may take 5–10 minutes. Waiting for deletion to complete..." -ForegroundColor Gray
+        Write-Host "  This may take 5-10 minutes. Waiting for deletion to complete..." -ForegroundColor Gray
         az group delete --name $ResourceGroupName --yes
         Write-Host "  Resource group deleted." -ForegroundColor Green
     }
@@ -147,7 +147,7 @@ else {
     Write-Host "  Skipped (resource group not found)." -ForegroundColor Gray
 }
 
-# ─── Step 4: Delete Entra App Registration ────────────────────────────────────
+# --- Step 4: Delete Entra App Registration ------------------------------------
 
 Write-Host "`n[4/4] Entra App Registration..." -ForegroundColor Cyan
 
@@ -170,7 +170,7 @@ else {
     Write-Host "  az ad app delete --id <your-app-client-id>" -ForegroundColor Gray
 }
 
-# ─── Summary ──────────────────────────────────────────────────────────────────
+# --- Summary ------------------------------------------------------------------
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Green

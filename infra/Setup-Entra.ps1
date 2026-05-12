@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Automates the Entra App Registration setup required before deployment.
 
@@ -134,7 +134,7 @@ else {
 
     Write-Host "  App created. Client ID: $AppClientId" -ForegroundColor Green
 
-    # Register SPA redirect URIs — MUST use Graph API; az cli only supports Web type
+    # Register SPA redirect URIs  -  MUST use Graph API; az cli only supports Web type
     Write-Host "  Registering SPA redirect URIs..." -ForegroundColor Cyan
     $graphToken = (az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>$null)
     $graphHeaders = @{ Authorization = "Bearer $graphToken"; "Content-Type" = "application/json" }
@@ -206,7 +206,7 @@ Invoke-RestMethod -Method POST `
     -Uri "https://graph.microsoft.com/v1.0/oauth2PermissionGrants" `
     -Headers $graphHeaders -Body $consentBody | Out-Null
 
-# ─── Output results ───────────────────────────────────────────────────────────
+# --- Output results -----------------------------------------------------------
 
 Write-Host ""
 Write-Host "  ================================================================" -ForegroundColor Green

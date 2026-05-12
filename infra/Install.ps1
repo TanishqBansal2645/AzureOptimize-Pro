@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-    One-command installer for AzureOptimize Pro — run directly from Azure Cloud Shell.
+    One-command installer for AzureOptimize Pro  -  run directly from Azure Cloud Shell.
 
 .DESCRIPTION
     Handles all three deployment lifecycle operations from a single script:
@@ -20,7 +20,7 @@
 
 .PARAMETER Remove
     Delete all Azure resources. Prompts for confirmation before proceeding.
-    Does NOT delete the Entra App Registration — remove that manually if needed.
+    Does NOT delete the Entra App Registration  -  remove that manually if needed.
 
 .PARAMETER GitHubToken
     GitHub Personal Access Token to automatically configure GitHub Actions secrets,
@@ -63,7 +63,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-# ─── Banner ───────────────────────────────────────────────────────────────────
+# --- Banner -------------------------------------------------------------------
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Blue
@@ -74,7 +74,7 @@ else              { Write-Host "    Mode: NEW INSTALL" -ForegroundColor Green }
 Write-Host "================================================================" -ForegroundColor Blue
 Write-Host ""
 
-# ─── Check prerequisites ──────────────────────────────────────────────────────
+# --- Check prerequisites ------------------------------------------------------
 
 Write-Host "Checking prerequisites..." -ForegroundColor Cyan
 
@@ -91,7 +91,7 @@ if ($missing.Count -gt 0) {
 }
 Write-Host "  All required tools found." -ForegroundColor Green
 
-# ─── Verify Azure login ───────────────────────────────────────────────────────
+# --- Verify Azure login -------------------------------------------------------
 
 Write-Host "`nVerifying Azure login..." -ForegroundColor Cyan
 try {
@@ -107,7 +107,7 @@ catch {
     exit 1
 }
 
-# ─── Clone / update repository ────────────────────────────────────────────────
+# --- Clone / update repository ------------------------------------------------
 
 $installDir = Join-Path $HOME "azureoptimize"
 
@@ -131,7 +131,7 @@ else {
 $infraPath = Join-Path $installDir "infra"
 $deployScript = Join-Path $infraPath "Deploy-AzureCostOptimize.ps1"
 
-# ─── REMOVE mode ──────────────────────────────────────────────────────────────
+# --- REMOVE mode --------------------------------------------------------------
 
 if ($Remove) {
     Write-Host ""
@@ -150,7 +150,7 @@ if ($Remove) {
     exit 0
 }
 
-# ─── UPDATE mode ──────────────────────────────────────────────────────────────
+# --- UPDATE mode --------------------------------------------------------------
 
 if ($Update) {
     Write-Host ""
@@ -178,7 +178,7 @@ if ($Update) {
     exit 0
 }
 
-# ─── NEW INSTALL mode ─────────────────────────────────────────────────────────
+# --- NEW INSTALL mode ---------------------------------------------------------
 
 Write-Host "`n================================================================" -ForegroundColor Cyan
 Write-Host "  STEP 1 of 2: Entra App Registration" -ForegroundColor Cyan
@@ -235,7 +235,7 @@ finally {
     Pop-Location
 }
 
-# ─── Done ─────────────────────────────────────────────────────────────────────
+# --- Done ---------------------------------------------------------------------
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Green
