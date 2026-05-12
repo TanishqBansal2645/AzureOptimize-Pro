@@ -70,15 +70,16 @@ if ($UpdateRedirectUri) {
         exit 1
     }
 
-    Write-Host "  Updating redirect URI for app $AppClientId..." -ForegroundColor Cyan
-    $callbackUrl = "$DashboardUrl/.auth/login/aad/callback"
-    az ad app update `
-        --id $AppClientId `
-        --web-redirect-uris $callbackUrl "http://localhost:3000" `
-        --output none
+    Write-Host "  Updating SPA redirect URIs for app $AppClientId..." -ForegroundColor Cyan
+    $graphToken = (az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>$null)
+    $graphHeaders = @{ Authorization = "Bearer $graphToken"; "Content-Type" = "application/json" }
+    $spaBody = @{ spa = @{ redirectUris = @($DashboardUrl, "http://localhost:3000") } } | ConvertTo-Json -Depth 5
+    Invoke-RestMethod -Method PATCH `
+        -Uri "https://graph.microsoft.com/v1.0/applications(appId='$AppClientId')" `
+        -Headers $graphHeaders -Body $spaBody | Out-Null
 
     Write-Host ""
-    Write-Host "  v Redirect URI updated to: $callbackUrl" -ForegroundColor Green
+    Write-Host "  v SPA redirect URI updated to: $DashboardUrl" -ForegroundColor Green
     Write-Host ""
     exit 0
 }
@@ -96,10 +97,10 @@ else {
     # Create new app registration
     Write-Host "  Creating Entra App Registration..." -ForegroundColor Cyan
 
+    # Create without redirect URIs first; SPA type must be set via Graph API
     $createResult = az ad app create `
         --display-name "AzureOptimize Pro" `
         --sign-in-audience "AzureADMyOrg" `
-        --web-redirect-uris "http://localhost:3000" `
         --query "appId" -o tsv 2>&1
 
     $AppClientId = ($createResult |
@@ -132,6 +133,15 @@ else {
     }
 
     Write-Host "  App created. Client ID: $AppClientId" -ForegroundColor Green
+
+    # Register SPA redirect URIs — MUST use Graph API; az cli only supports Web type
+    Write-Host "  Registering SPA redirect URIs..." -ForegroundColor Cyan
+    $graphToken = (az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>$null)
+    $graphHeaders = @{ Authorization = "Bearer $graphToken"; "Content-Type" = "application/json" }
+    $spaBody = @{ spa = @{ redirectUris = @("http://localhost:3000") } } | ConvertTo-Json -Depth 5
+    Invoke-RestMethod -Method PATCH `
+        -Uri "https://graph.microsoft.com/v1.0/applications(appId='$AppClientId')" `
+        -Headers $graphHeaders -Body $spaBody | Out-Null
 
     # Create service principal
     Write-Host "  Creating service principal..." -ForegroundColor Cyan
