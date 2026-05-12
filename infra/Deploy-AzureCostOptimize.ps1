@@ -591,7 +591,15 @@ if ($GitHubToken) {
         Write-Host "  v Environments ready" -ForegroundColor Green
     }
     catch {
-        Write-Warn "Could not create GitHub environments: $_"
+        $errMsg = $_.ToString()
+        if ($errMsg -match "403") {
+            Write-Warn "Could not create GitHub environments (403 Forbidden)."
+            Write-Host "  Your PAT needs the Environments permission." -ForegroundColor Yellow
+            Write-Host "  Classic PAT: 'repo' scope  |  Fine-grained PAT: Actions + Environments (read/write)" -ForegroundColor Yellow
+            Write-Host "  Create environments manually at: https://github.com/$GitHubRepo/settings/environments" -ForegroundColor Yellow
+        } else {
+            Write-Warn "Could not create GitHub environments: $errMsg"
+        }
     }
 
     Write-Host "  Setting GitHub secrets..." -ForegroundColor Gray
@@ -643,8 +651,8 @@ if ($GitHubToken) {
             -Headers $ghHeaders -Body $dispatchBody -ContentType "application/json" | Out-Null
         Write-Success "Deployment workflows triggered"
         Write-Host "  Track progress: https://github.com/$GitHubRepo/actions" -ForegroundColor Gray
-        Write-Host "  Waiting 4 minutes for deployment to complete..." -ForegroundColor Gray
-        Start-Sleep -Seconds 240
+        Write-Host "  Waiting 8 minutes for GitHub Actions deployment to complete..." -ForegroundColor Gray
+        Start-Sleep -Seconds 480
     }
     catch {
         Write-Warn "Could not trigger workflows automatically: $_"
@@ -710,13 +718,15 @@ NEXT_PUBLIC_DEVELOPER_NAME=$trimmedDeveloperName
 # --- Step 5: Health check -----------------------------------------------------
 
 Write-Step 5 $totalSteps "API health check"
-$maxRetries = 8
-$retryDelay = 15
+$maxRetries = 25
+$retryDelay = 45
 $healthOk = $false
+
+Write-Host "  Waiting up to ~18 minutes for cold start (Consumption plan)..." -ForegroundColor Gray
 
 for ($i = 1; $i -le $maxRetries; $i++) {
     try {
-        $healthResponse = Invoke-RestMethod -Uri "$($script:functionAppUrl)/api/health" -Method GET -TimeoutSec 20
+        $healthResponse = Invoke-RestMethod -Uri "$($script:functionAppUrl)/api/health" -Method GET -TimeoutSec 30
         if ($healthResponse.status -eq "healthy") {
             Write-Success "API is healthy (tenant: $($healthResponse.environment.tenantId))"
             $healthOk = $true
@@ -724,6 +734,7 @@ for ($i = 1; $i -le $maxRetries; $i++) {
         }
         else {
             Write-Warn "Unexpected status: $($healthResponse.status). Retrying ($i/$maxRetries)..."
+            if ($i -lt $maxRetries) { Start-Sleep -Seconds $retryDelay }
         }
     }
     catch {

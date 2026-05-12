@@ -1,6 +1,6 @@
 # AzureOptimize Pro — Deployment Guide
 
-> **Time required:** ~15 minutes  
+> **Time required:** ~30–35 minutes (mostly waiting for Azure cold start)  
 > **Prerequisites:** Azure Cloud Shell (or local: Azure CLI + PowerShell 7+)  
 > **Required role:** Owner on the target Azure subscription
 
@@ -93,13 +93,13 @@ Creates the Entra App Registration, grants admin consent, and prints the exact d
 | 1 | Login to Azure | <30s |
 | 2 | Bicep: Storage, Function App, Static Web App, Key Vault, Managed Identity | 5–8 min |
 | 3 | RBAC: Reader + Cost Management Reader + Monitoring Reader + **Contributor** on all tenant subscriptions | <1 min |
-| 4 | Configure GitHub Actions secrets (if `-GitHubToken` provided) and trigger first deploy | 4 min |
-| 5 | API health check (retries 8×) | <2 min |
+| 4 | Configure GitHub Actions secrets (if `-GitHubToken` provided) and trigger first deploy | 8 min |
+| 5 | API health check (retries 25×, up to 18 min — covers Consumption plan cold start) | ≤18 min |
 | 6 | Smoke tests | <1 min |
 
 > **Contributor role:** Required for automated remediation (deleting idle resources, resizing VMs, enabling AHB, scaling databases). Without it, scanning and reporting work normally, but the Implement button will fail with a permissions error.
 
-**Total: ~12–15 minutes**
+**Total: ~30–35 minutes** (most of the wait is the Consumption plan cold start after code deployment)
 
 #### Optional: Branding
 
@@ -311,6 +311,8 @@ To re-deploy for a specific client after a code update: run the workflows manual
 
 > Install PyNaCl before using `-GitHubToken`: `pip install PyNaCl`
 
+**If environment creation fails with 403:** The PAT is missing the Environments permission. The script will print a warning and the URL to create environments manually — secrets and variables will still be saved to `%TEMP%\azopt-github-secrets\`. Create the environments at `Settings → Environments`, then set secrets/variables manually using those files, and re-run the workflows.
+
 ---
 
 ## Troubleshooting
@@ -333,10 +335,18 @@ az role assignment list --assignee $(az ad signed-in-user show --query id -o tsv
 ```
 
 ### Health check times out after deployment
-Function App on Consumption plan takes 30–60 seconds on cold start. The deploy script retries 8 times. If still failing, check:
+Function App on Consumption plan can take **10–18 minutes** on a fresh deployment cold start. The deploy script retries for ~18 minutes. If still failing after that window:
+
 ```powershell
 az functionapp log tail --name <app-name> --resource-group rg-azureoptimize
 ```
+
+You can also check App Insights for startup traces:
+```powershell
+# In Azure Portal → Application Insights → Logs:
+traces | where timestamp > ago(30m) | where message contains "StartupCount" | order by timestamp desc
+```
+A successful start shows `StartupCount=1` (or higher on retry). If `StartupCount` keeps increasing without a "Host started" message, there may be a code error — check the function app logs.
 
 ### "Dashboard loads but shows No data"
 Cost data collects on 4-hour timers. Wait up to 4 hours, or trigger a manual refresh via the dashboard's Refresh button.
