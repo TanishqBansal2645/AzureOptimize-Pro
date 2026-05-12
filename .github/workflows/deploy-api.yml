@@ -26,10 +26,15 @@ jobs:
           npm ci
           npm run build
           npm ci --omit=dev
+          # Staging dir: only runtime files (no src/, no tsconfig, no package-lock)
+          mkdir -p ../api-deploy
+          cp -r dist ../api-deploy/
+          cp -r node_modules ../api-deploy/
+          cp host.json package.json ../api-deploy/
 
       - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
           app-name: func-azureoptimize-jmf62z
-          package: ./api
+          package: ./api-deploy
           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}

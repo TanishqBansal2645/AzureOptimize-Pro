@@ -123,6 +123,10 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
           name: 'CORS_ORIGINS'
           value: '*'
         }
+        {
+          name: 'WEBSITE_RUN_FROM_PACKAGE'
+          value: '1'
+        }
       ]
       cors: {
         allowedOrigins: [
