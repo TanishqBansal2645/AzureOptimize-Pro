@@ -3,26 +3,39 @@
     One-command installer for AzureOptimize Pro — run directly from Azure Cloud Shell.
 
 .DESCRIPTION
-    Downloads the AzureOptimize Pro repository, then runs the full automated setup:
-      1. Clones (or updates) the GitHub repository
-      2. Runs Setup-Entra.ps1 to create the Entra App Registration
-      3. Runs Deploy-AzureCostOptimize.ps1 to provision infrastructure and deploy code
+    Handles all three deployment lifecycle operations from a single script:
 
-    Designed to be invoked from Azure Cloud Shell with a single command:
-
+    NEW INSTALL (default):
         irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
 
-    Or with parameters:
+    UPDATE (re-apply RBAC, verify health, update branding):
+        & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Update
 
-        $params = @{ Location = "westeurope"; ResourceGroupName = "rg-myoptimize" }
-        irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
+    REMOVE (tear down all Azure resources):
+        & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Remove
 
-.PARAMETER RepoUrl
-    GitHub repository HTTPS clone URL.
-    Default: https://github.com/TanishqBansal2645/AzureOptimize-Pro.git
+.PARAMETER Update
+    Re-apply RBAC roles, verify the deployment is healthy, and optionally update branding.
+    Skips Entra setup and infrastructure re-deployment. Safe to run at any time.
 
-.PARAMETER Branch
-    Git branch to clone. Default: main
+.PARAMETER Remove
+    Delete all Azure resources. Prompts for confirmation before proceeding.
+    Does NOT delete the Entra App Registration — remove that manually if needed.
+
+.PARAMETER GitHubToken
+    GitHub Personal Access Token to automatically configure GitHub Actions secrets,
+    environment variables, and trigger the first deployment.
+    Required scopes: repo (classic PAT) or Actions read/write + Environments (fine-grained).
+    Install PyNaCl first: pip install PyNaCl
+    Only used during new installs (ignored for -Update and -Remove).
+
+.PARAMETER CompanyName
+    Optional company/client name shown in the sidebar and header.
+    Falls back to the Azure AD tenant display name if omitted.
+
+.PARAMETER DeveloperName
+    Optional developer/consultant name shown on the login page footer.
+    Falls back to "Tanishq Bansal" if omitted.
 
 .PARAMETER Location
     Azure region for resource deployment. Default: eastus
@@ -32,21 +45,18 @@
 
 .PARAMETER SkipTests
     Skip smoke tests after deployment.
-
-.EXAMPLE
-    # Full install (interactive — prompts for confirmation at each step)
-    irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
-
-.EXAMPLE
-    # Specify region and resource group
-    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Location "westeurope" -ResourceGroupName "rg-costopt"
 #>
 
 param(
-    [string] $RepoUrl = "https://github.com/TanishqBansal2645/AzureOptimize-Pro.git",
-    [string] $Branch = "main",
+    [switch] $Update,
+    [switch] $Remove,
+    [string] $GitHubToken = "",
+    [string] $CompanyName = "",
+    [string] $DeveloperName = "",
     [string] $Location = "eastus",
     [string] $ResourceGroupName = "rg-azureoptimize",
+    [string] $RepoUrl = "https://github.com/TanishqBansal2645/AzureOptimize-Pro.git",
+    [string] $Branch = "main",
     [switch] $SkipTests
 )
 
@@ -58,7 +68,9 @@ $ProgressPreference = "SilentlyContinue"
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Blue
 Write-Host "    AzureOptimize Pro - Cloud Shell Installer" -ForegroundColor Blue
-Write-Host "    Automated setup from GitHub repository" -ForegroundColor Blue
+if ($Update)      { Write-Host "    Mode: UPDATE" -ForegroundColor Yellow }
+elseif ($Remove)  { Write-Host "    Mode: REMOVE" -ForegroundColor Red }
+else              { Write-Host "    Mode: NEW INSTALL" -ForegroundColor Green }
 Write-Host "================================================================" -ForegroundColor Blue
 Write-Host ""
 
@@ -66,21 +78,18 @@ Write-Host ""
 
 Write-Host "Checking prerequisites..." -ForegroundColor Cyan
 
+$requiredTools = if ($Remove) { @("az", "git") } else { @("az", "node", "npm", "git") }
 $missing = @()
-foreach ($tool in @("az", "node", "npm", "git")) {
-    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-        $missing += $tool
-    }
+foreach ($tool in $requiredTools) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { $missing += $tool }
 }
 
 if ($missing.Count -gt 0) {
     Write-Host "  Missing required tools: $($missing -join ', ')" -ForegroundColor Red
     Write-Host "  Azure Cloud Shell has all these pre-installed." -ForegroundColor Yellow
-    Write-Host "  If running locally, install the missing tools and retry." -ForegroundColor Yellow
     exit 1
 }
-
-Write-Host "  All required tools found (az, node, npm, git)." -ForegroundColor Green
+Write-Host "  All required tools found." -ForegroundColor Green
 
 # ─── Verify Azure login ───────────────────────────────────────────────────────
 
@@ -91,7 +100,7 @@ try {
     $TenantId = $account.tenantId
     Write-Host "  Logged in as: $($account.user.name)" -ForegroundColor Green
     Write-Host "  Tenant: $TenantId" -ForegroundColor Green
-    Write-Host "  Default subscription: $($account.name) ($($account.id))" -ForegroundColor Green
+    Write-Host "  Subscription: $($account.name)" -ForegroundColor Green
 }
 catch {
     Write-Host "  Not logged in to Azure. Run 'az login' first." -ForegroundColor Red
@@ -102,10 +111,10 @@ catch {
 
 $installDir = Join-Path $HOME "azureoptimize"
 
-Write-Host "`nSetting up repository..." -ForegroundColor Cyan
+Write-Host "`nSetting up repository at $installDir..." -ForegroundColor Cyan
 
 if (Test-Path (Join-Path $installDir ".git")) {
-    Write-Host "  Repository exists at $installDir — pulling latest changes..." -ForegroundColor Gray
+    Write-Host "  Pulling latest changes..." -ForegroundColor Gray
     Push-Location $installDir
     git fetch origin $Branch --quiet
     git checkout $Branch --quiet
@@ -114,14 +123,62 @@ if (Test-Path (Join-Path $installDir ".git")) {
     Write-Host "  Repository updated." -ForegroundColor Green
 }
 else {
-    Write-Host "  Cloning $RepoUrl (branch: $Branch) to $installDir..." -ForegroundColor Gray
+    Write-Host "  Cloning repository..." -ForegroundColor Gray
     git clone --branch $Branch --single-branch $RepoUrl $installDir --quiet
     Write-Host "  Repository cloned." -ForegroundColor Green
 }
 
 $infraPath = Join-Path $installDir "infra"
+$deployScript = Join-Path $infraPath "Deploy-AzureCostOptimize.ps1"
 
-# ─── Step 1: Entra App Registration ───────────────────────────────────────────
+# ─── REMOVE mode ──────────────────────────────────────────────────────────────
+
+if ($Remove) {
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host "  Removing AzureOptimize Pro from tenant $TenantId" -ForegroundColor Red
+    Write-Host "  Resource group: $ResourceGroupName" -ForegroundColor Red
+    Write-Host "================================================================" -ForegroundColor Red
+
+    Push-Location $infraPath
+    try {
+        & $deployScript -TenantId $TenantId -ResourceGroupName $ResourceGroupName -Remove
+    }
+    finally {
+        Pop-Location
+    }
+    exit 0
+}
+
+# ─── UPDATE mode ──────────────────────────────────────────────────────────────
+
+if ($Update) {
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Cyan
+    Write-Host "  Updating AzureOptimize Pro in tenant $TenantId" -ForegroundColor Cyan
+    Write-Host "  Resource group: $ResourceGroupName" -ForegroundColor Cyan
+    Write-Host "================================================================" -ForegroundColor Cyan
+
+    $deployArgs = @{
+        TenantId          = $TenantId
+        ResourceGroupName = $ResourceGroupName
+        Update            = $true
+    }
+    if ($CompanyName)   { $deployArgs['CompanyName']   = $CompanyName }
+    if ($DeveloperName) { $deployArgs['DeveloperName'] = $DeveloperName }
+    if ($SkipTests)     { $deployArgs['SkipTests']     = $true }
+
+    Push-Location $infraPath
+    try {
+        & $deployScript @deployArgs
+    }
+    finally {
+        Pop-Location
+    }
+    exit 0
+}
+
+# ─── NEW INSTALL mode ─────────────────────────────────────────────────────────
 
 Write-Host "`n================================================================" -ForegroundColor Cyan
 Write-Host "  STEP 1 of 2: Entra App Registration" -ForegroundColor Cyan
@@ -129,27 +186,22 @@ Write-Host "================================================================" -F
 
 $entraScript = Join-Path $infraPath "Setup-Entra.ps1"
 if (-not (Test-Path $entraScript)) {
-    Write-Host "  Setup-Entra.ps1 not found at $entraScript" -ForegroundColor Red
+    Write-Host "  Setup-Entra.ps1 not found." -ForegroundColor Red
     exit 1
 }
 
 Write-Host "  Running Setup-Entra.ps1..." -ForegroundColor Gray
-
-# Capture the output to extract AppClientId and AdminPrincipalId
 $entraOutput = & $entraScript -TenantId $TenantId 2>&1
 $entraExitCode = $LASTEXITCODE
 $entraOutput | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
 
-# Stop if Setup-Entra failed (e.g. insufficient Entra permissions)
 if ($entraExitCode -ne 0) {
     Write-Host ""
     Write-Host "  Entra setup failed (exit code $entraExitCode). See errors above." -ForegroundColor Red
-    Write-Host "  Fix the issue and re-run this installer." -ForegroundColor Yellow
     exit 1
 }
 
-# Parse out the AppClientId and AdminPrincipalId from the script's structured output markers
-$AppClientId = ($entraOutput | Select-String "##RESULT AppClientId=([0-9a-f-]+)" | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
+$AppClientId      = ($entraOutput | Select-String "##RESULT AppClientId=([0-9a-f-]+)"      | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
 $AdminPrincipalId = ($entraOutput | Select-String "##RESULT AdminPrincipalId=([0-9a-f-]+)" | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
 
 if (-not $AdminPrincipalId) {
@@ -159,17 +211,9 @@ if (-not $AdminPrincipalId) {
 Write-Host "  App Client ID     : $AppClientId" -ForegroundColor Green
 Write-Host "  Admin Principal ID: $AdminPrincipalId" -ForegroundColor Green
 
-# ─── Step 2: Deploy infrastructure + code ─────────────────────────────────────
-
 Write-Host "`n================================================================" -ForegroundColor Cyan
 Write-Host "  STEP 2 of 2: Infrastructure and Code Deployment" -ForegroundColor Cyan
 Write-Host "================================================================" -ForegroundColor Cyan
-
-$deployScript = Join-Path $infraPath "Deploy-AzureCostOptimize.ps1"
-if (-not (Test-Path $deployScript)) {
-    Write-Host "  Deploy-AzureCostOptimize.ps1 not found at $deployScript" -ForegroundColor Red
-    exit 1
-}
 
 $deployArgs = @{
     TenantId          = $TenantId
@@ -178,7 +222,10 @@ $deployArgs = @{
     Location          = $Location
     ResourceGroupName = $ResourceGroupName
 }
-if ($SkipTests) { $deployArgs['SkipTests'] = $true }
+if ($GitHubToken)   { $deployArgs['GitHubToken']   = $GitHubToken }
+if ($CompanyName)   { $deployArgs['CompanyName']   = $CompanyName }
+if ($DeveloperName) { $deployArgs['DeveloperName'] = $DeveloperName }
+if ($SkipTests)     { $deployArgs['SkipTests']     = $true }
 
 Push-Location $infraPath
 try {
@@ -195,9 +242,11 @@ Write-Host "================================================================" -F
 Write-Host "    Installation complete!" -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  To update the solution later (redeploy code only):" -ForegroundColor Cyan
-Write-Host "  cd ~/azureoptimize && git pull && cd infra && .\Deploy-AzureCostOptimize.ps1 -TenantId $TenantId -Update" -ForegroundColor White
+Write-Host "  Future operations (run from Cloud Shell):" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  To completely remove the solution:" -ForegroundColor Cyan
-Write-Host "  cd ~/azureoptimize/infra && .\Deploy-AzureCostOptimize.ps1 -TenantId $TenantId -Remove" -ForegroundColor White
+Write-Host "  UPDATE (after code changes or RBAC drift):" -ForegroundColor White
+Write-Host "  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Update" -ForegroundColor Gray
+Write-Host ""
+Write-Host "  REMOVE (decommission the tool completely):" -ForegroundColor White
+Write-Host "  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Remove" -ForegroundColor Gray
 Write-Host ""

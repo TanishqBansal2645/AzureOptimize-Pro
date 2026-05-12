@@ -8,35 +8,51 @@
 
 ## Overview
 
-Deployment is two PowerShell commands run from the client's Azure tenant:
+Three operations cover the full lifecycle — all are single commands from the client's Azure Cloud Shell:
 
-```powershell
-# Step 1 — Create the Entra App Registration (once per tenant)
-.\infra\Setup-Entra.ps1 -TenantId "<TENANT_ID>"
+| Operation | When to use | Command |
+|-----------|-------------|---------|
+| **Install** | New client tenant | `irm .../Install.ps1 \| iex` |
+| **Update** | After code changes, RBAC drift | `... -Update` |
+| **Remove** | End of engagement | `... -Remove` |
 
-# Step 2 — Provision all Azure infrastructure
-.\infra\Deploy-AzureCostOptimize.ps1 `
-  -TenantId         "<TENANT_ID>" `
-  -AdminPrincipalId "<ADMIN_OBJECT_ID>" `
-  -AppClientId      "<APP_CLIENT_ID>"
-```
-
-Step 1 outputs the exact Step 2 command — just copy and paste.
+See the **Cloud Shell Commands** section below for the exact commands.
 
 Code (API + frontend) deploys automatically via GitHub Actions on every push to `main`.  
-The deploy script handles only Azure infrastructure: storage, function app, key vault, managed identity, and RBAC.
+The install script handles everything else: Entra App Registration, Azure infrastructure, GitHub Actions setup.
 
 ---
 
-## One-Command Install (Cloud Shell)
+## Cloud Shell Commands (Primary Method)
 
-The fastest path — run this directly in the client's Azure Cloud Shell:
+All three lifecycle operations are single commands run from the **client's Azure Cloud Shell**. No tools to install, no parameters to remember.
 
+### New Install
 ```powershell
 irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
 ```
+Creates the Entra App Registration, provisions all Azure infrastructure, configures GitHub Actions, and deploys the code. Takes ~15 minutes.
 
-This clones the repo, runs Setup-Entra, and runs Deploy automatically. No tools to install.
+To also configure GitHub automatically (recommended — avoids manual secret setup):
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -GitHubToken "ghp_..."
+```
+
+### Update
+Re-applies RBAC roles and verifies the deployment is healthy. Run this after pulling new code or if a role assignment was accidentally removed.
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Update
+```
+
+### Remove (Decommission)
+Deletes all Azure resources. Prompts `Type 'yes' to confirm` before proceeding.
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Remove
+```
+
+> The Entra App Registration is **not** deleted — remove it manually from Entra ID → App Registrations if you want a complete cleanup.
+
+All three commands auto-detect the tenant from your active Azure login. No need to pass `-TenantId` manually.
 
 ---
 
