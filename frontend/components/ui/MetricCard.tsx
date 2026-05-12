@@ -15,6 +15,7 @@ interface MetricCardProps {
   className?: string;
   iconClassName?: string;
   loading?: boolean;
+  index?: number;
 }
 
 export function MetricCard({
@@ -26,10 +27,14 @@ export function MetricCard({
   className,
   iconClassName,
   loading = false,
+  index = 0,
 }: MetricCardProps) {
   if (loading) {
     return (
-      <div className={cn('bg-white rounded-xl border border-slate-200 p-5', className)}>
+      <div
+        className={cn('bg-white rounded-xl border border-slate-200 p-5 animate-fade-in-up', className)}
+        style={{ animationDelay: `${index * 80}ms` }}
+      >
         <div className="skeleton h-4 w-24 mb-3" />
         <div className="skeleton h-8 w-32 mb-2" />
         <div className="skeleton h-3 w-20" />
@@ -53,7 +58,15 @@ export function MetricCard({
       : Minus;
 
   return (
-    <div className={cn('bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md transition-shadow', className)}>
+    <div
+      className={cn(
+        'group bg-white rounded-xl border border-slate-200 p-5',
+        'hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200',
+        'animate-fade-in-up',
+        className
+      )}
+      style={{ animationDelay: `${index * 80}ms` }}
+    >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-slate-500 mb-1">{title}</p>
@@ -75,6 +88,7 @@ export function MetricCard({
           <div
             className={cn(
               'flex items-center justify-center w-12 h-12 rounded-xl shrink-0',
+              'group-hover:scale-110 transition-transform duration-200',
               iconClassName ?? 'bg-blue-50'
             )}
           >

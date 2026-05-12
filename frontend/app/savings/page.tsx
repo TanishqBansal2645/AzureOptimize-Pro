@@ -58,6 +58,7 @@ export default function SavingsPage() {
             icon={DollarSign}
             iconClassName="bg-green-600"
             loading={isLoading}
+            index={0}
           />
           <MetricCard
             title="Saved All Time"
@@ -65,6 +66,7 @@ export default function SavingsPage() {
             icon={TrendingUp}
             iconClassName="bg-blue-600"
             loading={isLoading}
+            index={1}
           />
           <MetricCard
             title="ROI"
@@ -73,6 +75,7 @@ export default function SavingsPage() {
             icon={Star}
             iconClassName={summary?.paybackAchieved ? 'bg-green-600' : 'bg-slate-600'}
             loading={isLoading}
+            index={2}
           />
           <MetricCard
             title="Implementations"
@@ -80,6 +83,7 @@ export default function SavingsPage() {
             icon={Trophy}
             iconClassName="bg-amber-500"
             loading={isLoading}
+            index={3}
           />
         </div>
 
