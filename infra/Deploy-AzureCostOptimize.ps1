@@ -93,7 +93,8 @@ param(
 
     [switch] $Update,
     [switch] $Remove,
-    [switch] $SkipTests
+    [switch] $SkipTests,
+    [switch] $Force    # Skip confirmation prompt (for scripted / CI use)
 )
 
 $ErrorActionPreference = "Stop"
@@ -265,12 +266,20 @@ function Remove-MIRoleAssignments {
         [string] $PrincipalId,
         [string] $SubscriptionId
     )
-    $url      = "https://management.azure.com/subscriptions/${SubscriptionId}/providers/Microsoft.Authorization/roleAssignments?`$filter=principalId eq '${PrincipalId}'&api-version=2022-04-01"
-    $response = az rest --method GET --url $url 2>&1 | Where-Object { $_ -notmatch '^WARNING' } | ConvertFrom-Json -ErrorAction SilentlyContinue
+    $url  = "https://management.azure.com/subscriptions/${SubscriptionId}/providers/Microsoft.Authorization/roleAssignments?`$filter=principalId eq '${PrincipalId}'&api-version=2022-04-01"
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $raw  = az rest --method GET --url $url 2>&1
+    $ec   = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    if ($ec -ne 0) { return }   # inaccessible subscription — nothing to clean up
+    $response = ($raw | Where-Object { $_ -notmatch '^WARNING' } | Out-String | ConvertFrom-Json -ErrorAction SilentlyContinue)
     if ($response -and $response.value) {
         foreach ($ra in $response.value) {
             $delUrl = "https://management.azure.com$($ra.id)?api-version=2022-04-01"
+            $prev2 = $ErrorActionPreference; $ErrorActionPreference = "Continue"
             az rest --method DELETE --url $delUrl --output none 2>&1 | Out-Null
+            $ErrorActionPreference = $prev2
         }
     }
 }
@@ -280,10 +289,15 @@ function Remove-MIRoleAssignments {
 if ($Remove) {
     Show-Banner
     Write-Host "  REMOVE MODE - This will delete all resources!" -ForegroundColor Red
-    $confirm = Read-Host "Type 'yes' to confirm deletion of resource group '$ResourceGroupName'"
-    if ($confirm -ne 'yes') {
-        Write-Host "Deletion cancelled." -ForegroundColor Yellow
-        exit 0
+    if (-not $Force) {
+        $confirm = Read-Host "Type 'yes' to confirm deletion of resource group '$ResourceGroupName'"
+        if ($confirm -ne 'yes') {
+            Write-Host "Deletion cancelled." -ForegroundColor Yellow
+            exit 0
+        }
+    }
+    else {
+        Write-Host "  -Force specified: skipping confirmation prompt" -ForegroundColor Yellow
     }
 
     Write-Host "`nLogging in to tenant $TenantId..." -ForegroundColor Cyan
