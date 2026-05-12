@@ -102,7 +102,7 @@ function Show-Banner {
     Write-Host ""
     Write-Host "================================================================" -ForegroundColor Blue
     Write-Host "    AzureOptimize Pro - Deployment Script" -ForegroundColor Blue
-    Write-Host "    Cost Optimization Platform v1.0" -ForegroundColor Blue
+    Write-Host "    Cost Optimization Platform v1.1" -ForegroundColor Blue
     Write-Host "================================================================" -ForegroundColor Blue
     Write-Host ""
 }
@@ -150,6 +150,50 @@ urllib.request.urlopen(urllib.request.Request(
     }
 }
 
+# ─── Role Assignment Helpers (use az rest — az role assignment is unreliable) ──
+# Uses deterministic UUIDs so re-running the script never creates duplicate assignments.
+
+function Add-RoleAssignment {
+    param(
+        [string] $PrincipalId,
+        [string] $RoleDefinitionId,   # Built-in role GUID (stable across all tenants)
+        [string] $Scope               # e.g. /subscriptions/xxx
+    )
+    # Deterministic assignment ID: same principal+role+scope always = same GUID (idempotent)
+    $seed  = "$PrincipalId|$RoleDefinitionId|$Scope"
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($seed)
+    $hash  = [System.Security.Cryptography.MD5]::Create().ComputeHash($bytes)
+    $hash[6] = ($hash[6] -band 0x0F) -bor 0x30   # version 3
+    $hash[8] = ($hash[8] -band 0x3F) -bor 0x80   # variant RFC 4122
+    $assignmentId = [System.Guid]::new($hash).ToString()
+
+    $bodyObj = [ordered]@{
+        properties = [ordered]@{
+            roleDefinitionId = "${Scope}/providers/Microsoft.Authorization/roleDefinitions/${RoleDefinitionId}"
+            principalId      = $PrincipalId
+            principalType    = "ServicePrincipal"
+        }
+    }
+    $body = $bodyObj | ConvertTo-Json -Compress -Depth 3
+    $url  = "https://management.azure.com${Scope}/providers/Microsoft.Authorization/roleAssignments/${assignmentId}?api-version=2022-04-01"
+    az rest --method PUT --url $url --body $body --headers "Content-Type=application/json" --output none 2>$null
+}
+
+function Remove-MIRoleAssignments {
+    param(
+        [string] $PrincipalId,
+        [string] $SubscriptionId
+    )
+    $url      = "https://management.azure.com/subscriptions/${SubscriptionId}/providers/Microsoft.Authorization/roleAssignments?`$filter=principalId eq '${PrincipalId}'&api-version=2022-04-01"
+    $response = az rest --method GET --url $url 2>$null | ConvertFrom-Json
+    if ($response -and $response.value) {
+        foreach ($ra in $response.value) {
+            $delUrl = "https://management.azure.com$($ra.id)?api-version=2022-04-01"
+            az rest --method DELETE --url $delUrl --output none 2>$null
+        }
+    }
+}
+
 # ─── Remove Mode ──────────────────────────────────────────────────────────────
 
 if ($Remove) {
@@ -166,10 +210,10 @@ if ($Remove) {
 
     Write-Host "Removing role assignments for Managed Identity..." -ForegroundColor Cyan
     $subscriptions = az account list --query "[?tenantId=='$TenantId'].id" -o tsv
-    foreach ($subId in $subscriptions) {
-        $mi = az identity list --resource-group $ResourceGroupName --subscription $subId --query "[?starts_with(name, 'mi-azureoptimize')].principalId" -o tsv 2>$null
-        if ($mi) {
-            az role assignment delete --assignee $mi --subscription $subId --output none 2>$null
+    $miPrincipalId = az identity list --resource-group $ResourceGroupName --query "[?starts_with(name, 'mi-azureoptimize')].principalId" -o tsv 2>$null
+    if ($miPrincipalId) {
+        foreach ($subId in ($subscriptions -split "`n" | Where-Object { $_.Trim() })) {
+            Remove-MIRoleAssignments -PrincipalId $miPrincipalId.Trim() -SubscriptionId $subId.Trim()
         }
     }
 
@@ -286,12 +330,16 @@ if (-not $Update) {
         foreach ($subId in ($subscriptions -split "`n" | Where-Object { $_ -and $_.Trim() })) {
             $subId = $subId.Trim()
             try {
-                # Read roles for scanning and cost data
-                az role assignment create --assignee $script:managedIdentityPrincipalId --role "Reader" --scope "/subscriptions/$subId" --output none 2>$null
-                az role assignment create --assignee $script:managedIdentityPrincipalId --role "Cost Management Reader" --scope "/subscriptions/$subId" --output none 2>$null
-                az role assignment create --assignee $script:managedIdentityPrincipalId --role "Monitoring Reader" --scope "/subscriptions/$subId" --output none 2>$null
-                # Contributor required for automated remediations (VM resize, AHB, disk downgrade, etc.)
-                az role assignment create --assignee $script:managedIdentityPrincipalId --role "Contributor" --scope "/subscriptions/$subId" --output none 2>$null
+                $miId  = $script:managedIdentityPrincipalId
+                $scope = "/subscriptions/$subId"
+                # Reader — resource inspection across all subscriptions
+                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "acdd72a7-3385-48ef-bd42-f606fba81ae7" -Scope $scope
+                # Cost Management Reader — billing and cost data
+                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "72fafb9e-0641-4937-9268-a91bfd8191a6" -Scope $scope
+                # Monitoring Reader — Azure Monitor metrics
+                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "43d0d8ad-25c7-4714-9337-8ba259a9fe05" -Scope $scope
+                # Contributor — write operations for automated remediation (VM resize, AHB, disk downgrade, etc.)
+                Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "b24988ac-6180-42a0-ab88-20f7382dd24c" -Scope $scope
                 $assignedCount++
             }
             catch {
