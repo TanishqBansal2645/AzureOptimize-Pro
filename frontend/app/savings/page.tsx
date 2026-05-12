@@ -97,35 +97,13 @@ export default function SavingsPage() {
           )}
         </div>
 
-        {/* ROI progress bar */}
-        {!isLoading && summary && (
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="font-semibold text-slate-800">License Payback Progress</h3>
-              <span className="text-sm font-medium text-green-600">
-                {formatCurrency(summary.totalAllTime)} / {formatCurrency(summary.licenseCost)}
-              </span>
-            </div>
-            <div className="w-full bg-slate-100 rounded-full h-4">
-              <div
-                className={`h-4 rounded-full transition-all ${summary.paybackAchieved ? 'bg-green-500' : 'bg-blue-500'}`}
-                style={{ width: `${Math.min(100, (summary.totalAllTime / summary.licenseCost) * 100)}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-xs text-slate-500 mt-1">
-              <span>$0</span>
-              <span>{formatPercent((summary.totalAllTime / summary.licenseCost) * 100, 0)} of license paid off</span>
-              <span>{formatCurrency(summary.licenseCost)}</span>
-            </div>
-          </div>
-        )}
-
         {/* Savings log */}
         <div>
           <h3 className="font-semibold text-slate-800 mb-3">Savings Log</h3>
           <DataTable
             data={savings}
             loading={isLoading}
+            pageSize={20}
             searchKeys={['resourceName', 'category', 'implementedBy']}
             emptyMessage="No savings recorded yet. Implement recommendations from any module to start tracking."
             columns={[

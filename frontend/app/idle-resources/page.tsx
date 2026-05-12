@@ -7,9 +7,9 @@ import { DataTable } from '@/components/ui/DataTable';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
-import { fetchIdleResources, updateIdleStatus, IdleResourceItem } from '@/lib/api';
+import { fetchIdleResources, updateIdleStatus, markImplemented, IdleResourceItem } from '@/lib/api';
 import { formatCurrency, formatDateShort } from '@/lib/utils';
-import { Trash2, CheckCircle, DollarSign, Filter } from 'lucide-react';
+import { Trash2, CheckCircle, DollarSign, PlayCircle } from 'lucide-react';
 import { useState } from 'react';
 
 const categories = [
@@ -24,8 +24,9 @@ const categories = [
 
 export default function IdleResourcesPage() {
   const qc = useQueryClient();
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState('All');
+  const [implementing, setImplementing] = useState<string | null>(null);
+  const [dismissing, setDismissing] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['idle-resources'],
@@ -36,9 +37,30 @@ export default function IdleResourcesPage() {
     mutationFn: ({ ids, subscriptionId }: { ids: string[]; subscriptionId: string }) =>
       updateIdleStatus(ids, subscriptionId, 'reviewed'),
     onSuccess: () => {
-      setSelectedIds([]);
       qc.invalidateQueries({ queryKey: ['idle-resources'] });
+      setDismissing(null);
     },
+    onError: () => setDismissing(null),
+  });
+
+  const implementMutation = useMutation({
+    mutationFn: (item: IdleResourceItem) =>
+      markImplemented({
+        recommendationType: 'idle',
+        id: item.id,
+        subscriptionId: item.subscriptionId,
+        resourceName: item.resourceName,
+        resourceId: item.resourceId,
+        resourceGroup: item.resourceGroup,
+        category: `Idle: ${item.resourceType}`,
+        projectedMonthlySaving: item.estimatedMonthlyCost,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['idle-resources'] });
+      qc.invalidateQueries({ queryKey: ['savings'] });
+      setImplementing(null);
+    },
+    onError: () => setImplementing(null),
   });
 
   const resources = data?.data ?? [];
@@ -121,33 +143,6 @@ export default function IdleResourcesPage() {
           })}
         </div>
 
-        {/* Bulk actions */}
-        {selectedIds.length > 0 && (
-          <div className="flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-700 font-medium">{selectedIds.length} selected</p>
-            <Button
-              size="sm"
-              variant="outline"
-              icon={<CheckCircle className="w-4 h-4" />}
-              loading={dismissMutation.isPending}
-              onClick={() => {
-                const first = resources.find((r) => selectedIds.includes(r.id));
-                if (first) {
-                  dismissMutation.mutate({ ids: selectedIds, subscriptionId: first.subscriptionId });
-                }
-              }}
-            >
-              Mark as Reviewed
-            </Button>
-            <button
-              className="text-sm text-slate-500 hover:text-slate-700"
-              onClick={() => setSelectedIds([])}
-            >
-              Clear selection
-            </button>
-          </div>
-        )}
-
         <DataTable
           data={filtered}
           loading={isLoading}
@@ -162,7 +157,6 @@ export default function IdleResourcesPage() {
             },
             { key: 'resourceName', label: 'Resource Name', sortable: true },
             { key: 'resourceGroup', label: 'Resource Group', sortable: true },
-            { key: 'subscriptionId', label: 'Subscription', className: 'max-w-[180px] truncate' },
             { key: 'location', label: 'Region', sortable: true },
             {
               key: 'estimatedMonthlyCost',
@@ -180,23 +174,34 @@ export default function IdleResourcesPage() {
             },
             {
               key: 'id',
-              label: 'Action',
+              label: 'Actions',
               render: (v, row) => (
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 rounded border-slate-300"
-                    checked={selectedIds.includes(String(v))}
-                    onChange={(e) => {
-                      setSelectedIds(
-                        e.target.checked
-                          ? [...selectedIds, String(v)]
-                          : selectedIds.filter((id) => id !== String(v))
-                      );
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon={<PlayCircle className="w-3.5 h-3.5" />}
+                    loading={implementing === String(v)}
+                    onClick={() => {
+                      setImplementing(String(v));
+                      implementMutation.mutate(row as unknown as IdleResourceItem);
                     }}
-                  />
-                  <span className="text-xs text-slate-500">Select</span>
-                </label>
+                  >
+                    Implement
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    icon={<CheckCircle className="w-3.5 h-3.5" />}
+                    loading={dismissing === String(v)}
+                    onClick={() => {
+                      setDismissing(String(v));
+                      dismissMutation.mutate({ ids: [String(v)], subscriptionId: String(row['subscriptionId']) });
+                    }}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
               ),
             },
           ]}

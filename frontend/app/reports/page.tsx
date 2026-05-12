@@ -113,19 +113,27 @@ export default function ReportsPage() {
           )}
 
           <div className="mt-4 p-4 bg-slate-50 rounded-lg">
-            <p className="text-xs font-medium text-slate-600 mb-2">Report includes 5 tabs:</p>
-            <div className="grid grid-cols-2 gap-1">
+            <p className="text-xs font-medium text-slate-600 mb-2">Report includes 2 worksheets:</p>
+            <div className="flex flex-col gap-2">
               {[
-                'Executive Summary',
-                'Savings Implemented',
-                'Open Recommendations',
-                'Cost Breakdown',
-                'Budget Status',
+                {
+                  name: 'Cost & Savings Overview',
+                  desc: 'MTD spend, forecasts, savings implemented, top services, budget status',
+                  color: 'bg-blue-500',
+                },
+                {
+                  name: 'Recommendations',
+                  desc: 'All open opportunities (priority-coloured) + all implemented savings in one place',
+                  color: 'bg-green-500',
+                },
               ].map((tab) => (
-                <p key={tab} className="text-xs text-slate-500 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                  {tab}
-                </p>
+                <div key={tab.name} className="flex items-start gap-2">
+                  <span className={`w-2 h-2 rounded-full ${tab.color} shrink-0 mt-1`} />
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700">{tab.name}</p>
+                    <p className="text-xs text-slate-500">{tab.desc}</p>
+                  </div>
+                </div>
               ))}
             </div>
           </div>

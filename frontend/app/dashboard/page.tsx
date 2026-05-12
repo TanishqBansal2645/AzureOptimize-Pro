@@ -364,54 +364,27 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Spend context + savings impact */}
-          <div className="lg:col-span-2 flex flex-col gap-3 animate-fade-in-up" style={stagger(11)}>
-            {totalMTDSpend > 0 && (
-              <div className="bg-white rounded-xl border border-slate-200 p-4">
-                <p className="text-xs font-medium text-slate-500 mb-1">Month-to-Date Spend</p>
-                <p className="text-2xl font-bold text-slate-800">{formatCurrency(totalMTDSpend)}</p>
-                {savingsPercent > 0 && (
-                  <div className="mt-3">
-                    <div className="flex justify-between text-xs text-slate-500 mb-1.5">
-                      <span>Savings opportunity</span>
-                      <span className="text-green-600 font-semibold">{formatPercent(savingsPercent, 0)} of spend</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div
-                        className="bg-green-500 h-2 rounded-full transition-all duration-700"
-                        style={{ width: `${Math.min(100, savingsPercent)}%` }}
-                      />
-                    </div>
+          {/* Spend context */}
+          {totalMTDSpend > 0 && (
+            <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 animate-fade-in-up self-start" style={stagger(11)}>
+              <p className="text-xs font-medium text-slate-500 mb-1">Month-to-Date Spend</p>
+              <p className="text-2xl font-bold text-slate-800">{formatCurrency(totalMTDSpend)}</p>
+              {savingsPercent > 0 && (
+                <div className="mt-3">
+                  <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+                    <span>Savings opportunity</span>
+                    <span className="text-green-600 font-semibold">{formatPercent(savingsPercent, 0)} of spend</span>
                   </div>
-                )}
-              </div>
-            )}
-
-            <div
-              className="flex-1 rounded-xl border border-green-100 p-4"
-              style={{ background: 'linear-gradient(135deg, #f0fdf4, #ecfdf5)' }}
-            >
-              <p className="text-xs font-semibold text-green-700 mb-3 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" />
-                Your savings impact
-              </p>
-              <div className="space-y-3">
-                {[
-                  { label: 'Available this month', value: formatCurrency(totalMonthlySavings), highlight: true },
-                  { label: 'Implemented this month', value: formatCurrency(implementedThisMonth), highlight: false },
-                  { label: 'All-time savings', value: formatCurrency(implementedAllTime), highlight: false },
-                  { label: 'Annual if all actioned', value: formatCurrency(totalMonthlySavings * 12), highlight: false },
-                ].map(({ label, value, highlight }) => (
-                  <div key={label} className="flex items-center justify-between">
-                    <span className="text-sm text-green-700">{label}</span>
-                    <span className={`font-bold ${highlight ? 'text-green-600 text-base' : 'text-green-800 text-sm'}`}>
-                      {value}
-                    </span>
+                  <div className="w-full bg-slate-100 rounded-full h-2">
+                    <div
+                      className="bg-green-500 h-2 rounded-full transition-all duration-700"
+                      style={{ width: `${Math.min(100, savingsPercent)}%` }}
+                    />
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
 
       </div>

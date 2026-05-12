@@ -19,54 +19,73 @@ import {
   getBudgets,
 } from '../lib/storage/tableClient';
 
-const DARK_BLUE = '1E3A5F';
-const LIGHT_GRAY = 'F5F5F5';
-const RED = 'FF4444';
-const AMBER = 'FFAA00';
-const GREEN = '22C55E';
+// ─── Colour palette ───────────────────────────────────────────────────────────
+const C = {
+  darkBlue:   '1E3A5F',
+  midBlue:    '2563EB',
+  lightBlue:  'DBEAFE',
+  green:      '16A34A',
+  lightGreen: 'DCFCE7',
+  amber:      'D97706',
+  lightAmber: 'FEF3C7',
+  red:        'DC2626',
+  lightRed:   'FEE2E2',
+  gray:       'F8FAFC',
+  white:      'FFFFFF',
+  border:     'E2E8F0',
+} as const;
 
 function formatUSD(value: number): string {
   return `$${value.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 }
 
-function applyHeaderStyle(row: ExcelJS.Row, bg = DARK_BLUE): void {
+function applyHeaderStyle(row: ExcelJS.Row, bgHex: string = C.darkBlue): void {
   row.eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: `FF${bg}` },
-    };
+    cell.font = { bold: true, color: { argb: `FF${C.white}` }, size: 11, name: 'Calibri' };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${bgHex}` } };
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     cell.border = {
-      top: { style: 'thin' },
-      left: { style: 'thin' },
-      bottom: { style: 'thin' },
-      right: { style: 'thin' },
+      top:    { style: 'thin', color: { argb: `FF${C.border}` } },
+      left:   { style: 'thin', color: { argb: `FF${C.border}` } },
+      bottom: { style: 'thin', color: { argb: `FF${C.border}` } },
+      right:  { style: 'thin', color: { argb: `FF${C.border}` } },
     };
+    row.height = 22;
   });
 }
 
 function applyDataRow(row: ExcelJS.Row, isAlt: boolean): void {
-  const bg = isAlt ? LIGHT_GRAY : 'FFFFFF';
+  const bg = isAlt ? C.gray : C.white;
   row.eachCell((cell) => {
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: `FF${bg}` },
-    };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${bg}` } };
     cell.border = {
-      top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
-      left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
-      bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
-      right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+      top:    { style: 'thin', color: { argb: `FF${C.border}` } },
+      left:   { style: 'thin', color: { argb: `FF${C.border}` } },
+      bottom: { style: 'thin', color: { argb: `FF${C.border}` } },
+      right:  { style: 'thin', color: { argb: `FF${C.border}` } },
     };
     cell.alignment = { vertical: 'middle' };
+    cell.font = { name: 'Calibri', size: 10 };
   });
+}
+
+function applySectionTitle(row: ExcelJS.Row, bgHex: string, fgHex: string = C.white): void {
+  row.eachCell((cell) => {
+    cell.font = { bold: true, size: 12, color: { argb: `FF${fgHex}` }, name: 'Calibri' };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${bgHex}` } };
+    cell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  });
+  row.height = 26;
 }
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+function friendlyFileName(reportMonth: string): string {
+  const [year, month] = reportMonth.split('-');
+  const monthName = new Date(`${reportMonth}-01`).toLocaleDateString('en-US', { month: 'long' });
+  return `AzureOptimize-Report-${monthName}-${year}.xlsx`;
 }
 
 async function generateExcelHttp(
@@ -88,9 +107,8 @@ async function generateExcelHttp(
     reportMonth = (body as { month?: string } | null)?.month ?? reportMonth;
 
     reportId = generateId();
-    const fileName = `report-${reportMonth}-${reportId}.xlsx`;
+    const fileName = friendlyFileName(reportMonth);
 
-    // Create initial report record
     await upsertReport({
       partitionKey: 'reports',
       rowKey: reportId,
@@ -103,7 +121,6 @@ async function generateExcelHttp(
       errorMessage: '',
     });
 
-    // Fetch all data
     const [costData, savings, idleResources, rightsizing, ahb, storage, databases, budgets] =
       await Promise.all([
         getCostData('all'),
@@ -120,29 +137,45 @@ async function generateExcelHttp(
     workbook.creator = 'AzureOptimize Pro';
     workbook.created = new Date();
 
-    // ─── Tab 1: Executive Summary ────────────────────────────────────────
-    const summarySheet = workbook.addWorksheet('Executive Summary');
-    summarySheet.columns = [
-      { width: 30 }, { width: 20 }, { width: 20 }, { width: 20 },
+    // ════════════════════════════════════════════════════════════════════════
+    // TAB 1 — Cost & Savings Overview (all values)
+    // ════════════════════════════════════════════════════════════════════════
+    const overviewSheet = workbook.addWorksheet('Cost & Savings Overview');
+    overviewSheet.columns = [
+      { key: 'a', width: 34 },
+      { key: 'b', width: 20 },
+      { key: 'c', width: 20 },
+      { key: 'd', width: 20 },
+      { key: 'e', width: 20 },
     ];
 
-    // Title
-    const titleRow = summarySheet.addRow(['AzureOptimize Pro — Monthly Cost Report']);
-    titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: `FF${DARK_BLUE}` } };
-    summarySheet.addRow([`Report Period: ${reportMonth}`]);
-    summarySheet.addRow([`Generated: ${new Date().toLocaleDateString()}`]);
-    summarySheet.addRow([`Generated By: ${user.email}`]);
-    summarySheet.addRow([]);
+    // Report title block
+    const titleRow = overviewSheet.addRow(['AzureOptimize Pro — Cost & Savings Report']);
+    titleRow.getCell(1).font = { bold: true, size: 18, color: { argb: `FF${C.darkBlue}` }, name: 'Calibri' };
+    overviewSheet.addRow([`Period: ${reportMonth}`]).getCell(1).font = { size: 11, color: { argb: 'FF64748B' }, name: 'Calibri' };
+    overviewSheet.addRow([`Generated: ${new Date().toLocaleDateString('en-US', { dateStyle: 'long' })}`]).getCell(1).font = { size: 11, color: { argb: 'FF64748B' }, name: 'Calibri' };
+    overviewSheet.addRow([`Generated By: ${user.email}`]).getCell(1).font = { size: 11, color: { argb: 'FF64748B' }, name: 'Calibri' };
+    overviewSheet.addRow([]);
 
-    const totalMTD = costData.reduce((s, d) => s + d.totalCost, 0);
-    const totalPrev = costData.reduce((s, d) => s + d.previousMonthCost, 0);
-    const totalForecasted = costData.reduce((s, d) => s + d.forecastedCost, 0);
-    const momChange = totalMTD - totalPrev;
-    const momPercent = totalPrev > 0 ? (momChange / totalPrev) * 100 : 0;
+    // ── Section 1: Key Metrics ──
+    const metricsTitle = overviewSheet.addRow(['KEY METRICS']);
+    applySectionTitle(metricsTitle, C.midBlue);
+    overviewSheet.mergeCells(`A${metricsTitle.number}:E${metricsTitle.number}`);
 
-    const monthSavings = savings
+    const metricsHeader = overviewSheet.addRow(['Metric', 'Value', 'Previous Month', 'Change', 'Notes']);
+    applyHeaderStyle(metricsHeader, C.darkBlue);
+
+    const totalMTD      = costData.reduce((s, d) => s + d.totalCost, 0);
+    const totalPrev     = costData.reduce((s, d) => s + d.previousMonthCost, 0);
+    const totalForecast = costData.reduce((s, d) => s + d.forecastedCost, 0);
+    const momChange     = totalMTD - totalPrev;
+    const momPercent    = totalPrev > 0 ? (momChange / totalPrev) * 100 : 0;
+
+    const monthlySavingsImpl = savings
       .filter((s) => s.implementedAt.startsWith(reportMonth))
       .reduce((sum, s) => sum + s.projectedMonthlySaving, 0);
+
+    const allTimeSavingsImpl = savings.reduce((sum, s) => sum + s.projectedMonthlySaving, 0);
 
     const potentialSavings =
       idleResources.reduce((s, r) => s + r.estimatedMonthlyCost, 0) +
@@ -151,86 +184,101 @@ async function generateExcelHttp(
       storage.reduce((s, r) => s + r.estimatedMonthlySaving, 0) +
       databases.reduce((s, r) => s + r.estimatedMonthlySaving, 0);
 
-    const metricsHeader = summarySheet.addRow(['Metric', 'Value', 'Previous Month', 'Change']);
-    applyHeaderStyle(metricsHeader);
-
-    const metricsRows = [
-      ['Total Azure Spend (MTD)', formatUSD(totalMTD), formatUSD(totalPrev), `${momChange >= 0 ? '+' : ''}${formatUSD(momChange)} (${momPercent.toFixed(1)}%)`],
-      ['Forecasted Month-End Spend', formatUSD(totalForecasted), '', ''],
-      ['Savings Implemented This Month', formatUSD(monthSavings), '', ''],
-      ['Potential Savings Remaining', formatUSD(potentialSavings), '', ''],
-      ['Total Subscriptions', String(costData.length), '', ''],
+    const keyMetrics = [
+      ['Azure Spend — Month to Date',        formatUSD(totalMTD),              formatUSD(totalPrev), `${momChange >= 0 ? '+' : ''}${formatUSD(momChange)} (${momPercent.toFixed(1)}%)`, ''],
+      ['Azure Spend — Forecasted Month-End',  formatUSD(totalForecast),         '',                   '',                                                                               'Based on current run-rate'],
+      ['Savings Implemented This Month',      formatUSD(monthlySavingsImpl),    '',                   '',                                                                               ''],
+      ['Savings Implemented All Time',        formatUSD(allTimeSavingsImpl),    '',                   '',                                                                               ''],
+      ['Open Savings Potential (Monthly)',    formatUSD(potentialSavings),      '',                   '',                                                                               'If all recommendations actioned'],
+      ['Open Savings Potential (Annual)',     formatUSD(potentialSavings * 12), '',                   '',                                                                               ''],
+      ['Subscriptions Analysed',             String(costData.length),          '',                   '',                                                                               ''],
     ];
 
-    metricsRows.forEach((row, i) => {
-      const r = summarySheet.addRow(row);
+    keyMetrics.forEach((row, i) => {
+      const r = overviewSheet.addRow(row);
       applyDataRow(r, i % 2 === 0);
-      r.getCell(2).font = { bold: true };
+      r.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      r.getCell(2).font = { bold: true, name: 'Calibri', size: 10 };
     });
 
-    summarySheet.views = [{ state: 'frozen', ySplit: 6 }];
+    overviewSheet.addRow([]);
 
-    // ─── Tab 2: Savings Implemented ──────────────────────────────────────
-    const savingsSheet = workbook.addWorksheet('Savings Implemented');
-    savingsSheet.columns = [
-      { header: 'Date', key: 'date', width: 14 },
-      { header: 'Category', key: 'category', width: 20 },
-      { header: 'Resource Name', key: 'resource', width: 30 },
-      { header: 'Description', key: 'notes', width: 35 },
-      { header: 'Monthly Saving ($)', key: 'monthly', width: 18 },
-      { header: 'Annual Saving ($)', key: 'annual', width: 18 },
-      { header: 'Implemented By', key: 'by', width: 25 },
-    ];
+    // ── Section 2: Service Cost Breakdown ──
+    const serviceTitle = overviewSheet.addRow(['TOP AZURE SERVICES BY SPEND']);
+    applySectionTitle(serviceTitle, C.midBlue);
+    overviewSheet.mergeCells(`A${serviceTitle.number}:E${serviceTitle.number}`);
 
-    applyHeaderStyle(savingsSheet.getRow(1));
-    savingsSheet.views = [{ state: 'frozen', ySplit: 1 }];
+    const serviceHeader = overviewSheet.addRow(['Service Name', 'This Month ($)', '', '', '']);
+    applyHeaderStyle(serviceHeader, C.darkBlue);
 
-    let savingSubtotal = 0;
-    const filteredSavings = savings.filter((s) =>
-      s.implementedAt.startsWith(reportMonth)
-    );
+    const allServices: Record<string, number> = {};
+    for (const cd of costData) {
+      const services = JSON.parse(cd.serviceData || '[]') as Array<{ serviceName: string; cost: number }>;
+      for (const s of services) {
+        allServices[s.serviceName] = (allServices[s.serviceName] ?? 0) + s.cost;
+      }
+    }
 
-    filteredSavings.forEach((s, i) => {
-      const r = savingsSheet.addRow({
-        date: s.implementedAt.slice(0, 10),
-        category: s.category,
-        resource: s.resourceName,
-        notes: s.notes || s.category,
-        monthly: s.projectedMonthlySaving,
-        annual: s.projectedMonthlySaving * 12,
-        by: s.implementedBy,
+    Object.entries(allServices)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 20)
+      .forEach(([name, cost], i) => {
+        const r = overviewSheet.addRow([name, cost]);
+        applyDataRow(r, i % 2 === 0);
+        r.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        r.getCell(2).numFmt = '$#,##0.00';
       });
+
+    overviewSheet.addRow([]);
+
+    // ── Section 3: Budget Status ──
+    const budgetTitle = overviewSheet.addRow(['BUDGET STATUS']);
+    applySectionTitle(budgetTitle, C.midBlue);
+    overviewSheet.mergeCells(`A${budgetTitle.number}:E${budgetTitle.number}`);
+
+    const budgetHeader = overviewSheet.addRow(['Budget Name', 'Monthly Limit ($)', 'Spent ($)', '% Used', 'Status']);
+    applyHeaderStyle(budgetHeader, C.darkBlue);
+
+    budgets.forEach((b, i) => {
+      const pct    = b.amount > 0 ? Math.round((b.currentSpend / b.amount) * 100) : 0;
+      const status = pct >= 100 ? 'Over Budget' : pct >= 80 ? 'At Risk' : 'On Track';
+      const r = overviewSheet.addRow([b.name, b.amount, b.currentSpend, `${pct}%`, status]);
       applyDataRow(r, i % 2 === 0);
-      r.getCell('monthly').numFmt = '$#,##0.00';
-      r.getCell('annual').numFmt = '$#,##0.00';
-      savingSubtotal += s.projectedMonthlySaving;
+      r.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      r.getCell(2).numFmt = '$#,##0.00';
+      r.getCell(3).numFmt = '$#,##0.00';
+
+      const statusCell = r.getCell(5);
+      if (status === 'Over Budget') {
+        statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${C.lightRed}` } };
+        statusCell.font = { bold: true, color: { argb: `FF${C.red}` }, name: 'Calibri', size: 10 };
+      } else if (status === 'At Risk') {
+        statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${C.lightAmber}` } };
+        statusCell.font = { bold: true, color: { argb: `FF${C.amber}` }, name: 'Calibri', size: 10 };
+      } else {
+        statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${C.lightGreen}` } };
+        statusCell.font = { bold: true, color: { argb: `FF${C.green}` }, name: 'Calibri', size: 10 };
+      }
     });
 
-    const savingSubtotalRow = savingsSheet.addRow({
-      date: 'TOTAL',
-      monthly: savingSubtotal,
-      annual: savingSubtotal * 12,
-    });
-    applyHeaderStyle(savingSubtotalRow, '2D5A1B');
-    savingSubtotalRow.getCell('monthly').numFmt = '$#,##0.00';
-    savingSubtotalRow.getCell('annual').numFmt = '$#,##0.00';
+    overviewSheet.views = [{ state: 'frozen', ySplit: 1 }];
 
-    // ─── Tab 3: Open Recommendations ─────────────────────────────────────
-    const recsSheet = workbook.addWorksheet('Open Recommendations');
+    // ════════════════════════════════════════════════════════════════════════
+    // TAB 2 — Recommendations (Open + Implemented)
+    // ════════════════════════════════════════════════════════════════════════
+    const recsSheet = workbook.addWorksheet('Recommendations');
     recsSheet.columns = [
-      { header: 'Priority', key: 'priority', width: 12 },
-      { header: 'Category', key: 'category', width: 20 },
-      { header: 'Resource', key: 'resource', width: 30 },
-      { header: 'Recommendation', key: 'rec', width: 40 },
-      { header: 'Est. Monthly Saving ($)', key: 'monthly', width: 22 },
-      { header: 'Est. Annual Saving ($)', key: 'annual', width: 22 },
-      { header: 'Effort', key: 'effort', width: 12 },
+      { key: 'a', width: 12 },  // Priority / Date
+      { key: 'b', width: 22 },  // Category
+      { key: 'c', width: 30 },  // Resource
+      { key: 'd', width: 42 },  // Recommendation / Notes
+      { key: 'e', width: 20 },  // Monthly $
+      { key: 'f', width: 20 },  // Annual $
+      { key: 'g', width: 22 },  // Effort / Implemented By
     ];
 
-    applyHeaderStyle(recsSheet.getRow(1));
-    recsSheet.views = [{ state: 'frozen', ySplit: 1 }];
-
-    const allRecs = [
+    // ── Open Recommendations ──
+    const openRecs = [
       ...idleResources.map((r) => ({
         priority: r.estimatedMonthlyCost > 100 ? 'High' : 'Medium',
         category: 'Idle Resources',
@@ -243,7 +291,7 @@ async function generateExcelHttp(
         priority: r.monthlySaving > 200 ? 'High' : 'Medium',
         category: 'VM Rightsizing',
         resource: r.vmName,
-        rec: `Downsize from ${r.currentSku} to ${r.recommendedSku}`,
+        rec: `Downsize ${r.currentSku} → ${r.recommendedSku}`,
         monthly: r.monthlySaving,
         effort: 'Medium',
       })),
@@ -273,116 +321,104 @@ async function generateExcelHttp(
       })),
     ].sort((a, b) => b.monthly - a.monthly);
 
-    let recsSubtotal = 0;
-    allRecs.forEach((rec, i) => {
-      const r = recsSheet.addRow({ ...rec, annual: rec.monthly * 12 });
-      applyDataRow(r, i % 2 === 0);
+    const openTotal = openRecs.reduce((s, r) => s + r.monthly, 0);
 
-      // Color priority cell
-      const priorityCell = r.getCell('priority');
+    const openSectionRow = recsSheet.addRow([
+      `OPEN RECOMMENDATIONS — ${openRecs.length} items · ${formatUSD(openTotal)}/month potential`,
+      '', '', '', '', '', '',
+    ]);
+    applySectionTitle(openSectionRow, C.amber, C.white);
+    recsSheet.mergeCells(`A${openSectionRow.number}:G${openSectionRow.number}`);
+
+    const openHeader = recsSheet.addRow(['Priority', 'Category', 'Resource', 'Recommendation', 'Monthly ($)', 'Annual ($)', 'Effort']);
+    applyHeaderStyle(openHeader, C.darkBlue);
+
+    let openSubtotal = 0;
+    openRecs.forEach((rec, i) => {
+      const r = recsSheet.addRow([rec.priority, rec.category, rec.resource, rec.rec, rec.monthly, rec.monthly * 12, rec.effort]);
+      applyDataRow(r, i % 2 === 0);
+      r.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+      r.getCell(5).numFmt = '$#,##0.00';
+      r.getCell(6).numFmt = '$#,##0.00';
+
+      // Colour-code priority cell
+      const pCell = r.getCell(1);
       if (rec.priority === 'High') {
-        priorityCell.fill = {
-          type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${RED}` },
-        };
-        priorityCell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${C.lightRed}` } };
+        pCell.font = { bold: true, color: { argb: `FF${C.red}` }, name: 'Calibri', size: 10 };
       } else if (rec.priority === 'Medium') {
-        priorityCell.fill = {
-          type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${AMBER}` },
-        };
-        priorityCell.font = { bold: true };
+        pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${C.lightAmber}` } };
+        pCell.font = { bold: true, color: { argb: `FF${C.amber}` }, name: 'Calibri', size: 10 };
       } else {
-        priorityCell.fill = {
-          type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${GREEN}` },
-        };
-        priorityCell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${C.lightGreen}` } };
+        pCell.font = { bold: true, color: { argb: `FF${C.green}` }, name: 'Calibri', size: 10 };
       }
-
-      r.getCell('monthly').numFmt = '$#,##0.00';
-      r.getCell('annual').numFmt = '$#,##0.00';
-      recsSubtotal += rec.monthly;
+      openSubtotal += rec.monthly;
     });
 
-    const recsSubtotalRow = recsSheet.addRow({
-      priority: 'TOTAL',
-      monthly: recsSubtotal,
-      annual: recsSubtotal * 12,
-    });
-    applyHeaderStyle(recsSubtotalRow, '5A1B2D');
-    recsSubtotalRow.getCell('monthly').numFmt = '$#,##0.00';
-    recsSubtotalRow.getCell('annual').numFmt = '$#,##0.00';
+    // Open subtotal row
+    const openSubRow = recsSheet.addRow(['TOTAL', '', '', '', openSubtotal, openSubtotal * 12, '']);
+    applyHeaderStyle(openSubRow, C.amber);
+    openSubRow.getCell(5).numFmt = '$#,##0.00';
+    openSubRow.getCell(6).numFmt = '$#,##0.00';
 
-    // ─── Tab 4: Cost Breakdown ────────────────────────────────────────────
-    const costSheet = workbook.addWorksheet('Cost Breakdown');
-    costSheet.columns = [
-      { header: 'Service / Resource', key: 'name', width: 35 },
-      { header: 'This Month ($)', key: 'thisMonth', width: 16 },
-      { header: 'Last Month ($)', key: 'lastMonth', width: 16 },
-      { header: 'Delta ($)', key: 'delta', width: 14 },
-    ];
+    // Spacer
+    recsSheet.addRow([]);
 
-    applyHeaderStyle(costSheet.getRow(1));
-    costSheet.views = [{ state: 'frozen', ySplit: 1 }];
+    // ── Implemented Recommendations ──
+    const implSavings = savings.sort((a, b) =>
+      new Date(b.implementedAt).getTime() - new Date(a.implementedAt).getTime()
+    );
+    const implTotal = implSavings.reduce((s, r) => s + r.projectedMonthlySaving, 0);
 
-    const allServices: Record<string, number> = {};
-    for (const cd of costData) {
-      const services = JSON.parse(cd.serviceData || '[]') as Array<{ serviceName: string; cost: number }>;
-      for (const s of services) {
-        allServices[s.serviceName] = (allServices[s.serviceName] ?? 0) + s.cost;
-      }
-    }
+    const implSectionRow = recsSheet.addRow([
+      `IMPLEMENTED RECOMMENDATIONS — ${implSavings.length} items · ${formatUSD(implTotal)}/month saved`,
+      '', '', '', '', '', '',
+    ]);
+    applySectionTitle(implSectionRow, C.green, C.white);
+    recsSheet.mergeCells(`A${implSectionRow.number}:G${implSectionRow.number}`);
 
-    Object.entries(allServices)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 20)
-      .forEach(([name, cost], i) => {
-        const r = costSheet.addRow({ name, thisMonth: cost, lastMonth: 0, delta: cost });
-        applyDataRow(r, i % 2 === 0);
-        r.getCell('thisMonth').numFmt = '$#,##0.00';
-        r.getCell('lastMonth').numFmt = '$#,##0.00';
-        r.getCell('delta').numFmt = '$#,##0.00';
-      });
+    const implHeader = recsSheet.addRow(['Date', 'Category', 'Resource', 'Notes', 'Monthly ($)', 'Annual ($)', 'Implemented By']);
+    applyHeaderStyle(implHeader, C.darkBlue);
 
-    // ─── Tab 5: Budget Status ─────────────────────────────────────────────
-    const budgetSheet = workbook.addWorksheet('Budget Status');
-    budgetSheet.columns = [
-      { header: 'Budget Name', key: 'name', width: 25 },
-      { header: 'Scope', key: 'scope', width: 30 },
-      { header: 'Monthly Limit ($)', key: 'limit', width: 16 },
-      { header: 'Spent ($)', key: 'spent', width: 14 },
-      { header: '% Used', key: 'pct', width: 10 },
-      { header: 'Status', key: 'status', width: 12 },
-    ];
-
-    applyHeaderStyle(budgetSheet.getRow(1));
-    budgetSheet.views = [{ state: 'frozen', ySplit: 1 }];
-
-    budgets.forEach((b, i) => {
-      const pct = b.amount > 0 ? Math.round((b.currentSpend / b.amount) * 100) : 0;
-      const status = pct >= 100 ? 'Over' : pct >= 80 ? 'At Risk' : 'On Track';
-      const r = budgetSheet.addRow({
-        name: b.name,
-        scope: b.scope,
-        limit: b.amount,
-        spent: b.currentSpend,
-        pct: `${pct}%`,
-        status,
-      });
+    let implSubtotal = 0;
+    implSavings.forEach((s, i) => {
+      const r = recsSheet.addRow([
+        s.implementedAt.slice(0, 10),
+        s.category,
+        s.resourceName,
+        s.notes || '',
+        s.projectedMonthlySaving,
+        s.projectedMonthlySaving * 12,
+        s.implementedBy,
+      ]);
       applyDataRow(r, i % 2 === 0);
-      r.getCell('limit').numFmt = '$#,##0.00';
-      r.getCell('spent').numFmt = '$#,##0.00';
+      r.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+      r.getCell(5).numFmt = '$#,##0.00';
+      r.getCell(6).numFmt = '$#,##0.00';
 
-      const statusCell = r.getCell('status');
-      if (status === 'Over') {
-        statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${RED}` } };
-        statusCell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      } else if (status === 'At Risk') {
-        statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${AMBER}` } };
-        statusCell.font = { bold: true };
-      } else {
-        statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${GREEN}` } };
-        statusCell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      }
+      // Green tint on implemented rows
+      r.eachCell((cell) => {
+        if (!cell.fill || (cell.fill as ExcelJS.FillPattern).fgColor?.argb === `FF${C.gray}` ||
+            (cell.fill as ExcelJS.FillPattern).fgColor?.argb === `FF${C.white}`) {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: i % 2 === 0 ? 'FFF0FDF4' : `FF${C.white}` },
+          };
+        }
+      });
+
+      implSubtotal += s.projectedMonthlySaving;
     });
+
+    // Implemented subtotal row
+    const implSubRow = recsSheet.addRow(['TOTAL', '', '', '', implSubtotal, implSubtotal * 12, '']);
+    applyHeaderStyle(implSubRow, C.green);
+    implSubRow.getCell(5).numFmt = '$#,##0.00';
+    implSubRow.getCell(6).numFmt = '$#,##0.00';
+
+    recsSheet.views = [{ state: 'frozen', ySplit: 1 }];
 
     // Generate and upload
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
@@ -405,7 +441,6 @@ async function generateExcelHttp(
     return jsonResponse({ reportId, fileName, downloadUrl: sasUrl, reportMonth });
   } catch (err) {
     context.error('Error generating Excel report:', err);
-    // Mark report as failed so it doesn't stay stuck in 'generating' state
     if (reportId) {
       upsertReport({
         partitionKey: 'reports',
