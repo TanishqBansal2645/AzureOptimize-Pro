@@ -160,10 +160,51 @@ az ad app update `
     --enable-id-token-issuance true `
     --output none 2>$null
 
-# Set the app as a single-tenant API
-Write-Host "  Exposing API scope (for token audience validation)..." -ForegroundColor Cyan
-$apiUri = "api://$AppClientId"
-az ad app update --id $AppClientId --identifier-uris $apiUri --output none 2>$null
+# Set identifier URI and expose user_impersonation scope via Graph API
+# az cli cannot set identifier URIs or SPA redirect URIs correctly, so use Graph API
+Write-Host "  Exposing API scope (user_impersonation) via Graph API..." -ForegroundColor Cyan
+$graphToken = (az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>$null)
+$graphHeaders = @{ Authorization = "Bearer $graphToken"; "Content-Type" = "application/json" }
+
+$scopeId = [System.Guid]::NewGuid().ToString()
+$apiBody = @{
+    identifierUris = @("api://$AppClientId")
+    api = @{
+        oauth2PermissionScopes = @(
+            @{
+                id                      = $scopeId
+                adminConsentDescription = "Allow the app to access AzureOptimize Pro API on behalf of the signed-in user"
+                adminConsentDisplayName = "Access AzureOptimize Pro API"
+                userConsentDescription  = "Allow the app to access AzureOptimize Pro API on your behalf"
+                userConsentDisplayName  = "Access AzureOptimize Pro API"
+                value                   = "user_impersonation"
+                type                    = "User"
+                isEnabled               = $true
+            }
+        )
+    }
+} | ConvertTo-Json -Depth 10
+
+Invoke-RestMethod -Method PATCH `
+    -Uri "https://graph.microsoft.com/v1.0/applications(appId='$AppClientId')" `
+    -Headers $graphHeaders -Body $apiBody | Out-Null
+
+# Grant admin consent for the scope (AllPrincipals so all users in tenant get access)
+Write-Host "  Granting admin consent for user_impersonation..." -ForegroundColor Cyan
+Start-Sleep -Seconds 8
+$sp = Invoke-RestMethod -Method GET `
+    -Uri "https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$AppClientId'&`$select=id" `
+    -Headers $graphHeaders
+$spId = $sp.value[0].id
+$consentBody = @{
+    clientId    = $spId
+    consentType = "AllPrincipals"
+    resourceId  = $spId
+    scope       = "user_impersonation"
+} | ConvertTo-Json
+Invoke-RestMethod -Method POST `
+    -Uri "https://graph.microsoft.com/v1.0/oauth2PermissionGrants" `
+    -Headers $graphHeaders -Body $consentBody | Out-Null
 
 # ─── Output results ───────────────────────────────────────────────────────────
 
