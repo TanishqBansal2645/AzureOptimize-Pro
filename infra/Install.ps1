@@ -199,5 +199,5 @@ Write-Host "  To update the solution later (redeploy code only):" -ForegroundCol
 Write-Host "  cd ~/azureoptimize && git pull && cd infra && .\Deploy-AzureCostOptimize.ps1 -TenantId $TenantId -Update" -ForegroundColor White
 Write-Host ""
 Write-Host "  To completely remove the solution:" -ForegroundColor Cyan
-Write-Host "  cd ~/azureoptimize/infra && .\Teardown-AzureCostOptimize.ps1 -TenantId $TenantId -AppClientId $AppClientId" -ForegroundColor White
+Write-Host "  cd ~/azureoptimize/infra && .\Deploy-AzureCostOptimize.ps1 -TenantId $TenantId -Remove" -ForegroundColor White
 Write-Host ""

@@ -398,8 +398,37 @@ else {
         Write-Warn "Could not read all deployment outputs, continuing anyway: $_"
     }
 
-    Write-Step 3 $totalSteps "Skipping infrastructure (update mode)"
-    Write-Success "Skipped (update mode)"
+    Write-Step 3 $totalSteps "Re-applying role assignments on all subscriptions"
+    try {
+        $miPrincipalId = az identity list --resource-group $ResourceGroupName --query "[?starts_with(name,'mi-azureoptimize')].principalId" -o tsv 2>$null
+        if ($miPrincipalId) {
+            $script:managedIdentityPrincipalId = $miPrincipalId.Trim()
+            $subscriptions = az account list --query "[?state=='Enabled' && tenantId=='$TenantId'].id" -o tsv
+            $assignedCount = 0
+            foreach ($subId in ($subscriptions -split "`n" | Where-Object { $_ -and $_.Trim() })) {
+                $subId = $subId.Trim()
+                try {
+                    $miId  = $script:managedIdentityPrincipalId
+                    $scope = "/subscriptions/$subId"
+                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "acdd72a7-3385-48ef-bd42-f606fba81ae7" -Scope $scope
+                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "72fafb9e-0641-4937-9268-a91bfd8191a6" -Scope $scope
+                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "43d0d8ad-25c7-4714-9337-8ba259a9fe05" -Scope $scope
+                    Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "b24988ac-6180-42a0-ab88-20f7382dd24c" -Scope $scope
+                    $assignedCount++
+                }
+                catch {
+                    Write-Warn "Could not re-apply roles on $subId"
+                }
+            }
+            Write-Success "Roles verified on $assignedCount subscription(s)"
+        }
+        else {
+            Write-Warn "Could not find Managed Identity in '$ResourceGroupName' — skipping RBAC re-apply"
+        }
+    }
+    catch {
+        Write-Warn "RBAC re-apply had issues: $_"
+    }
 }
 
 # ─── Branding (optional — update mode only; fresh installs go via Bicep) ──────
@@ -437,6 +466,11 @@ if ($Update) {
 # ─── Step 4: Configure GitHub Actions deployment ──────────────────────────────
 
 Write-Step 4 $totalSteps "Configuring GitHub Actions deployment"
+
+if ($Update) {
+    Write-Success "Skipped (update mode — existing GitHub secrets unchanged)"
+}
+else {
 
 $swaName = az staticwebapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv
 $deployToken = az staticwebapp secrets list --name $swaName --resource-group $ResourceGroupName --query "properties.apiKey" -o tsv
@@ -509,6 +543,8 @@ else {
     Write-Host "================================================================" -ForegroundColor Green
     exit 0
 }
+
+} # end if (-not $Update) for Step 4
 
 # ─── Step 5: Health check ─────────────────────────────────────────────────────
 
