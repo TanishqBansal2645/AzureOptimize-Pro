@@ -156,6 +156,33 @@ Deletes the resource group, all resources, and all MI role assignments. Confirm 
 
 ---
 
+## Company Branding
+
+The sidebar and header display a company/tenant name beneath the AzureOptimize Pro product name.
+
+**Priority order:**
+1. `COMPANY_NAME` app setting on the Function App (takes precedence)
+2. Azure AD tenant display name (resolved automatically via Managed Identity)
+3. Falls back to showing only "AzureOptimize Pro" if neither is available
+
+**To set a custom name:**
+```powershell
+az functionapp config appsettings set `
+  --name <functionapp-name> `
+  --resource-group rg-azureoptimize `
+  --settings "COMPANY_NAME=Contoso Ltd"
+```
+
+To remove a custom name and fall back to tenant name, delete the setting:
+```powershell
+az functionapp config appsettings delete `
+  --name <functionapp-name> `
+  --resource-group rg-azureoptimize `
+  --setting-names COMPANY_NAME
+```
+
+---
+
 ## GitHub Actions Secrets Required
 
 | Secret | What it is | How to get it |

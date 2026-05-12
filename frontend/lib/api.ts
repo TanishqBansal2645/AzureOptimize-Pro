@@ -469,6 +469,18 @@ export async function fetchImplementations(): Promise<ImplementationsResponse> {
   return apiFetch<ImplementationsResponse>('implementations');
 }
 
+// ─── Config / Branding ───────────────────────────────────────────────────────
+
+export async function fetchConfig(): Promise<{ companyName: string }> {
+  try {
+    const res = await fetch(`${BASE_URL}/config`);
+    if (!res.ok) return { companyName: '' };
+    return res.json() as Promise<{ companyName: string }>;
+  } catch {
+    return { companyName: '' };
+  }
+}
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 export async function fetchHealth(): Promise<{

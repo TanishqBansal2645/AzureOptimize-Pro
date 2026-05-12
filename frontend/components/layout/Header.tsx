@@ -1,9 +1,11 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './AuthProvider';
 import { logout } from '@/lib/auth';
-import { LogOut, User, RefreshCw, Shield } from 'lucide-react';
+import { fetchConfig } from '@/lib/api';
+import { LogOut, RefreshCw, Shield } from 'lucide-react';
 import { useState } from 'react';
 
 const routeLabels: Record<string, string> = {
@@ -25,6 +27,13 @@ export function Header() {
   const { user, isAdmin } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const { data: config } = useQuery({
+    queryKey: ['config'],
+    queryFn: fetchConfig,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+  const companyName = config?.companyName ?? '';
 
   const title = routeLabels[pathname ?? ''] ?? 'AzureOptimize Pro';
 
@@ -38,7 +47,7 @@ export function Header() {
       <div>
         <h1 className="text-lg font-semibold text-slate-900">{title}</h1>
         <p className="text-xs font-medium" style={{ background: 'linear-gradient(90deg, #2563eb, #0ea5e9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-          AzureOptimize Pro
+          {companyName || 'AzureOptimize Pro'}
         </p>
       </div>
 
