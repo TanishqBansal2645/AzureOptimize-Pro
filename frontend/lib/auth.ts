@@ -29,14 +29,14 @@ const msalConfig: Configuration = {
   },
 };
 
-// API scopes — using the app's own client ID as scope for v2.0 token
+// Login scopes — basic identity only; keeps login reliable regardless of API scope consent state
 export const loginRequest = {
-  scopes: [
-    `api://${process.env.NEXT_PUBLIC_AZURE_CLIENT_ID ?? ''}/.default`,
-    'openid',
-    'profile',
-    'email',
-  ],
+  scopes: ['openid', 'profile', 'email'],
+};
+
+// API token scopes — requested lazily when calling backend endpoints
+export const apiTokenRequest = {
+  scopes: [`api://${process.env.NEXT_PUBLIC_AZURE_CLIENT_ID ?? ''}/.default`],
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
@@ -61,16 +61,15 @@ export async function getAccessToken(): Promise<string | null> {
 
   try {
     const result = await msalInstance.acquireTokenSilent({
-      ...loginRequest,
+      ...apiTokenRequest,
       account,
     });
     return result.accessToken;
   } catch (err) {
     if (err instanceof InteractionRequiredAuthError) {
-      // Token expired or user needs to re-authenticate
       try {
         const result = await msalInstance.acquireTokenPopup({
-          ...loginRequest,
+          ...apiTokenRequest,
           account,
         });
         return result.accessToken;
