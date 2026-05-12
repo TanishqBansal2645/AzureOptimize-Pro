@@ -279,16 +279,19 @@ if (-not $Update) {
         exit 1
     }
 
-    Write-Step 3 $totalSteps "Assigning Reader roles on all subscriptions"
+    Write-Step 3 $totalSteps "Assigning roles on all subscriptions"
     try {
         $subscriptions = az account list --query "[?state=='Enabled' && tenantId=='$TenantId'].id" -o tsv
         $assignedCount = 0
         foreach ($subId in ($subscriptions -split "`n" | Where-Object { $_ -and $_.Trim() })) {
             $subId = $subId.Trim()
             try {
+                # Read roles for scanning and cost data
                 az role assignment create --assignee $script:managedIdentityPrincipalId --role "Reader" --scope "/subscriptions/$subId" --output none 2>$null
                 az role assignment create --assignee $script:managedIdentityPrincipalId --role "Cost Management Reader" --scope "/subscriptions/$subId" --output none 2>$null
                 az role assignment create --assignee $script:managedIdentityPrincipalId --role "Monitoring Reader" --scope "/subscriptions/$subId" --output none 2>$null
+                # Contributor required for automated remediations (VM resize, AHB, disk downgrade, etc.)
+                az role assignment create --assignee $script:managedIdentityPrincipalId --role "Contributor" --scope "/subscriptions/$subId" --output none 2>$null
                 $assignedCount++
             }
             catch {

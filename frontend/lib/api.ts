@@ -403,6 +403,71 @@ export async function generateReport(month: string): Promise<{
   });
 }
 
+// ─── Remediation (automated implementation) ──────────────────────────────────
+
+export interface RemediatePayload {
+  type: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations';
+  recommendationId: string;
+  resourceId: string;
+  resourceName: string;
+  resourceType: string;
+  resourceGroup: string;
+  subscriptionId: string;
+  monthlySaving: number;
+  recommendedSku?: string;
+  details?: string;
+  term?: '1Year' | '3Year';
+  notes?: string;
+}
+
+export interface RemediationResponse {
+  implementationId: string;
+  action: string;
+  status: 'succeeded' | 'running' | 'failed' | 'manual';
+  automated: boolean;
+  details?: string;
+  portalUrl?: string;
+  powershellCommand?: string;
+  cliCommand?: string;
+}
+
+export async function executeRemediation(
+  payload: RemediatePayload
+): Promise<RemediationResponse> {
+  return apiFetch<RemediationResponse>('remediation/execute', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+// ─── Implementations log ──────────────────────────────────────────────────────
+
+export interface ImplementationRecord {
+  id: string;
+  type: string;
+  resourceType: string;
+  resourceName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+  action: string;
+  status: 'running' | 'succeeded' | 'failed' | 'manual';
+  automated: boolean;
+  monthlySaving: number;
+  initiatedBy: string;
+  initiatedAt: string;
+  completedAt: string | null;
+  errorMessage: string | null;
+  notes: string | null;
+}
+
+export interface ImplementationsResponse {
+  data: ImplementationRecord[];
+}
+
+export async function fetchImplementations(): Promise<ImplementationsResponse> {
+  return apiFetch<ImplementationsResponse>('implementations');
+}
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 export async function fetchHealth(): Promise<{

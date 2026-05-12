@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CloudCog,
+  Zap,
 } from 'lucide-react';
 
 const sections = [
@@ -44,6 +45,7 @@ const sections = [
     items: [
       { href: '/budgets', label: 'Budgets', icon: Wallet },
       { href: '/reports', label: 'Reports', icon: FileSpreadsheet },
+      { href: '/implementations', label: 'Implementations', icon: Zap },
     ],
   },
 ];

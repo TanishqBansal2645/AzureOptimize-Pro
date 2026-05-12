@@ -7,9 +7,11 @@ import { DataTable } from '@/components/ui/DataTable';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
-import { fetchIdleResources, updateIdleStatus, markImplemented, IdleResourceItem } from '@/lib/api';
+import { ImplementationModal } from '@/components/ui/ImplementationModal';
+import { fetchIdleResources, updateIdleStatus, IdleResourceItem } from '@/lib/api';
+import { RemediationContext } from '@/lib/remediationMeta';
 import { formatCurrency, formatDateShort } from '@/lib/utils';
-import { Trash2, CheckCircle, DollarSign, PlayCircle } from 'lucide-react';
+import { Trash2, CheckCircle, DollarSign, Zap } from 'lucide-react';
 import { useState } from 'react';
 
 const categories = [
@@ -25,8 +27,8 @@ const categories = [
 export default function IdleResourcesPage() {
   const qc = useQueryClient();
   const [activeCategory, setActiveCategory] = useState('All');
-  const [implementing, setImplementing] = useState<string | null>(null);
   const [dismissing, setDismissing] = useState<string | null>(null);
+  const [modalContext, setModalContext] = useState<RemediationContext | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['idle-resources'],
@@ -43,26 +45,6 @@ export default function IdleResourcesPage() {
     onError: () => setDismissing(null),
   });
 
-  const implementMutation = useMutation({
-    mutationFn: (item: IdleResourceItem) =>
-      markImplemented({
-        recommendationType: 'idle',
-        id: item.id,
-        subscriptionId: item.subscriptionId,
-        resourceName: item.resourceName,
-        resourceId: item.resourceId,
-        resourceGroup: item.resourceGroup,
-        category: `Idle: ${item.resourceType}`,
-        projectedMonthlySaving: item.estimatedMonthlyCost,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['idle-resources'] });
-      qc.invalidateQueries({ queryKey: ['savings'] });
-      setImplementing(null);
-    },
-    onError: () => setImplementing(null),
-  });
-
   const resources = data?.data ?? [];
   const filtered =
     activeCategory === 'All'
@@ -70,6 +52,19 @@ export default function IdleResourcesPage() {
       : resources.filter((r) => r.resourceType === activeCategory);
 
   const totalWaste = data?.summary.totalMonthlyWaste ?? 0;
+
+  const openModal = (item: IdleResourceItem) => {
+    setModalContext({
+      type: 'idle',
+      recommendationId: item.id,
+      resourceId: item.resourceId,
+      resourceName: item.resourceName,
+      resourceType: item.resourceType,
+      resourceGroup: item.resourceGroup,
+      subscriptionId: item.subscriptionId,
+      monthlySaving: item.estimatedMonthlyCost,
+    });
+  };
 
   if (error) {
     return (
@@ -92,7 +87,6 @@ export default function IdleResourcesPage() {
           <StaleBanner lastUpdated={data?.lastScanned} />
         </div>
 
-        {/* Summary cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <MetricCard
             title="Total Monthly Waste"
@@ -117,7 +111,6 @@ export default function IdleResourcesPage() {
           />
         </div>
 
-        {/* Category filter */}
         <div className="flex flex-wrap gap-2">
           {categories.map((cat) => {
             const count =
@@ -180,12 +173,8 @@ export default function IdleResourcesPage() {
                   <Button
                     size="sm"
                     variant="primary"
-                    icon={<PlayCircle className="w-3.5 h-3.5" />}
-                    loading={implementing === String(v)}
-                    onClick={() => {
-                      setImplementing(String(v));
-                      implementMutation.mutate(row as unknown as IdleResourceItem);
-                    }}
+                    icon={<Zap className="w-3.5 h-3.5" />}
+                    onClick={() => openModal(row as unknown as IdleResourceItem)}
                   >
                     Implement
                   </Button>
@@ -207,6 +196,18 @@ export default function IdleResourcesPage() {
           ]}
         />
       </div>
+
+      {modalContext && (
+        <ImplementationModal
+          context={modalContext}
+          onClose={() => setModalContext(null)}
+          onSuccess={() => {
+            setModalContext(null);
+            qc.invalidateQueries({ queryKey: ['idle-resources'] });
+            qc.invalidateQueries({ queryKey: ['savings'] });
+          }}
+        />
+      )}
     </AppLayout>
   );
 }

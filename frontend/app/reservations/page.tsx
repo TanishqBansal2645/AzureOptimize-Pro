@@ -1,50 +1,46 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataTable } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
-import { fetchReservations, markImplemented, ReservationItem } from '@/lib/api';
-import { formatCurrency, formatDateShort } from '@/lib/utils';
-import { BookMarked, DollarSign, Clock, CheckCircle } from 'lucide-react';
+import { ImplementationModal } from '@/components/ui/ImplementationModal';
+import { fetchReservations, ReservationItem } from '@/lib/api';
+import { RemediationContext } from '@/lib/remediationMeta';
+import { formatCurrency } from '@/lib/utils';
+import { BookMarked, DollarSign, Clock, Zap } from 'lucide-react';
 import { useState } from 'react';
 
 export default function ReservationsPage() {
   const qc = useQueryClient();
   const [termFilter, setTermFilter] = useState<'1Year' | '3Year'>('1Year');
-  const [implementing, setImplementing] = useState<string | null>(null);
+  const [modalContext, setModalContext] = useState<RemediationContext | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['reservations'],
     queryFn: fetchReservations,
   });
 
-  const implementMutation = useMutation({
-    mutationFn: ({ item, term }: { item: ReservationItem; term: '1Year' | '3Year' }) =>
-      markImplemented({
-        recommendationType: 'reservations',
-        id: item.id,
-        subscriptionId: item.subscriptionId,
-        resourceName: item.resourceType,
-        resourceId: item.id,
-        resourceGroup: item.scope,
-        category: `Reserved Instance (${term})`,
-        projectedMonthlySaving: term === '1Year' ? item.oneYearSaving : item.threeYearSaving,
-        notes: `${term} RI for ${item.resourceType} in ${item.region}`,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['reservations'] });
-      qc.invalidateQueries({ queryKey: ['savings'] });
-      setImplementing(null);
-    },
-    onError: () => setImplementing(null),
-  });
-
   const reservations = data?.data ?? [];
   const totalOneYear = data?.summary.totalOneYearMonthlySaving ?? 0;
   const totalThreeYear = data?.summary.totalThreeYearMonthlySaving ?? 0;
+
+  const openModal = (item: ReservationItem) => {
+    setModalContext({
+      type: 'reservations',
+      recommendationId: item.id,
+      resourceId: item.id,
+      resourceName: item.resourceType,
+      resourceType: item.resourceType,
+      resourceGroup: item.scope,
+      subscriptionId: item.subscriptionId,
+      monthlySaving: termFilter === '1Year' ? item.oneYearSaving : item.threeYearSaving,
+      term: termFilter,
+      notes: `${termFilter} RI for ${item.resourceType} in ${item.region}`,
+    });
+  };
 
   if (error) {
     return (
@@ -91,7 +87,6 @@ export default function ReservationsPage() {
           />
         </div>
 
-        {/* Term toggle */}
         <div className="flex items-center gap-2">
           <span className="text-sm text-slate-600 font-medium">Compare:</span>
           <div className="flex bg-slate-100 rounded-lg p-1">
@@ -107,7 +102,6 @@ export default function ReservationsPage() {
               </button>
             ))}
           </div>
-          <span className="text-xs text-slate-400">· Click Implement to log as actioned in Savings Tracker</span>
         </div>
 
         <DataTable
@@ -155,16 +149,12 @@ export default function ReservationsPage() {
             {
               key: 'id',
               label: 'Action',
-              render: (v, row) => (
+              render: (_, row) => (
                 <Button
                   size="sm"
                   variant="primary"
-                  icon={<CheckCircle className="w-3.5 h-3.5" />}
-                  loading={implementing === String(v)}
-                  onClick={() => {
-                    setImplementing(String(v));
-                    implementMutation.mutate({ item: row as unknown as ReservationItem, term: termFilter });
-                  }}
+                  icon={<Zap className="w-3.5 h-3.5" />}
+                  onClick={() => openModal(row as unknown as ReservationItem)}
                 >
                   Implement
                 </Button>
@@ -173,6 +163,18 @@ export default function ReservationsPage() {
           ]}
         />
       </div>
+
+      {modalContext && (
+        <ImplementationModal
+          context={modalContext}
+          onClose={() => setModalContext(null)}
+          onSuccess={() => {
+            setModalContext(null);
+            qc.invalidateQueries({ queryKey: ['reservations'] });
+            qc.invalidateQueries({ queryKey: ['savings'] });
+          }}
+        />
+      )}
     </AppLayout>
   );
 }

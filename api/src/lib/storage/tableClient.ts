@@ -188,6 +188,26 @@ export interface ReportEntity extends TableEntity {
   errorMessage: string;
 }
 
+export interface ImplementationEntity extends TableEntity {
+  implementationId: string;
+  type: string;
+  resourceType: string;
+  resourceId: string;
+  resourceName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+  action: string;
+  status: 'running' | 'succeeded' | 'failed' | 'manual';
+  automated: boolean;
+  monthlySaving: number;
+  initiatedBy: string;
+  initiatedByEmail: string;
+  initiatedAt: string;
+  completedAt: string;
+  errorMessage: string;
+  notes: string;
+}
+
 // ─── Table Names ─────────────────────────────────────────────────────────────
 
 const TABLES = {
@@ -201,6 +221,7 @@ const TABLES = {
   savings: 'savings',
   budgets: 'budgets',
   reports: 'reports',
+  implementations: 'implementations',
 } as const;
 
 // ─── Cost Data Operations ────────────────────────────────────────────────────
@@ -424,6 +445,34 @@ export async function markEntityStatus(
 ): Promise<void> {
   const client = await ensureTable(tableName);
   await client.updateEntity({ partitionKey, rowKey, status }, 'Merge');
+}
+
+// ─── Implementation Operations ────────────────────────────────────────────────
+
+export async function insertImplementation(entity: ImplementationEntity): Promise<void> {
+  const client = await ensureTable(TABLES.implementations);
+  await client.createEntity(entity);
+}
+
+export async function updateImplementation(
+  partitionKey: string,
+  rowKey: string,
+  update: Partial<ImplementationEntity>
+): Promise<void> {
+  const client = await ensureTable(TABLES.implementations);
+  await client.updateEntity({ partitionKey, rowKey, ...update }, 'Merge');
+}
+
+export async function getImplementations(): Promise<ImplementationEntity[]> {
+  const client = await ensureTable(TABLES.implementations);
+  const results: ImplementationEntity[] = [];
+  const iter = client.listEntities<ImplementationEntity>();
+  for await (const entity of iter) {
+    results.push(entity);
+  }
+  return results.sort(
+    (a, b) => new Date(b.initiatedAt).getTime() - new Date(a.initiatedAt).getTime()
+  );
 }
 
 export { TABLES };

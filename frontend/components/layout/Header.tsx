@@ -17,6 +17,7 @@ const routeLabels: Record<string, string> = {
   '/budgets': 'Budget Manager',
   '/savings': 'Savings Tracker',
   '/reports': 'Excel Reports',
+  '/implementations': 'Implementation Log',
 };
 
 export function Header() {

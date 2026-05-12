@@ -1,47 +1,45 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataTable } from '@/components/ui/DataTable';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
-import { fetchRightsizing, markImplemented, RightsizingItem } from '@/lib/api';
+import { ImplementationModal } from '@/components/ui/ImplementationModal';
+import { fetchRightsizing, RightsizingItem } from '@/lib/api';
+import { RemediationContext } from '@/lib/remediationMeta';
 import { formatCurrency, formatPercent, formatDateShort } from '@/lib/utils';
-import { Server, DollarSign, CheckCircle, ArrowRight } from 'lucide-react';
+import { Server, DollarSign, ArrowRight, Zap } from 'lucide-react';
 import { useState } from 'react';
 
 export default function RightsizingPage() {
   const qc = useQueryClient();
-  const [implementing, setImplementing] = useState<string | null>(null);
+  const [modalContext, setModalContext] = useState<RemediationContext | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['rightsizing'],
     queryFn: fetchRightsizing,
   });
 
-  const implementMutation = useMutation({
-    mutationFn: (item: RightsizingItem) =>
-      markImplemented({
-        recommendationType: 'rightsizing',
-        id: item.id,
-        subscriptionId: item.subscriptionId,
-        resourceName: item.vmName,
-        resourceId: item.resourceId,
-        resourceGroup: item.resourceGroup,
-        category: 'VM Rightsizing',
-        projectedMonthlySaving: item.monthlySaving,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['rightsizing'] });
-      qc.invalidateQueries({ queryKey: ['savings'] });
-      setImplementing(null);
-    },
-  });
-
   const recommendations = data?.data ?? [];
   const totalSaving = data?.summary.totalMonthlySaving ?? 0;
+
+  const openModal = (item: RightsizingItem) => {
+    setModalContext({
+      type: 'rightsizing',
+      recommendationId: item.id,
+      resourceId: item.resourceId,
+      resourceName: item.vmName,
+      resourceType: 'Virtual Machine',
+      resourceGroup: item.resourceGroup,
+      subscriptionId: item.subscriptionId,
+      monthlySaving: item.monthlySaving,
+      currentSku: item.currentSku,
+      recommendedSku: item.recommendedSku,
+    });
+  };
 
   if (error) {
     return (
@@ -156,16 +154,12 @@ export default function RightsizingPage() {
             {
               key: 'id',
               label: 'Action',
-              render: (v, row) => (
+              render: (_, row) => (
                 <Button
                   size="sm"
-                  variant="outline"
-                  icon={<CheckCircle className="w-3.5 h-3.5" />}
-                  loading={implementing === String(v)}
-                  onClick={() => {
-                    setImplementing(String(v));
-                    implementMutation.mutate(row as unknown as RightsizingItem);
-                  }}
+                  variant="primary"
+                  icon={<Zap className="w-3.5 h-3.5" />}
+                  onClick={() => openModal(row as unknown as RightsizingItem)}
                 >
                   Implement
                 </Button>
@@ -174,6 +168,18 @@ export default function RightsizingPage() {
           ]}
         />
       </div>
+
+      {modalContext && (
+        <ImplementationModal
+          context={modalContext}
+          onClose={() => setModalContext(null)}
+          onSuccess={() => {
+            setModalContext(null);
+            qc.invalidateQueries({ queryKey: ['rightsizing'] });
+            qc.invalidateQueries({ queryKey: ['savings'] });
+          }}
+        />
+      )}
     </AppLayout>
   );
 }

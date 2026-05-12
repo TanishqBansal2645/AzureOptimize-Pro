@@ -15,6 +15,7 @@
     "@azure/arm-advisor": "^3.0.0",
     "@azure/arm-compute": "^21.0.0",
     "@azure/arm-consumption": "^9.1.0",
+    "@azure/arm-sql": "^10.0.0",
     "@azure/arm-costmanagement": "1.0.0-beta.2",
     "@azure/arm-resourcegraph": "^4.0.0",
     "@azure/arm-resources": "^5.2.0",

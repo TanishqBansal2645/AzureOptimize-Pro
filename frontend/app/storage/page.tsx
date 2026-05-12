@@ -1,47 +1,44 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataTable } from '@/components/ui/DataTable';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
-import { fetchStorage, markImplemented, StorageItem } from '@/lib/api';
+import { ImplementationModal } from '@/components/ui/ImplementationModal';
+import { fetchStorage, StorageItem } from '@/lib/api';
+import { RemediationContext } from '@/lib/remediationMeta';
 import { formatCurrency } from '@/lib/utils';
-import { HardDrive, DollarSign, CheckCircle } from 'lucide-react';
+import { HardDrive, DollarSign, Zap } from 'lucide-react';
 import { useState } from 'react';
 
 export default function StoragePage() {
   const qc = useQueryClient();
-  const [implementing, setImplementing] = useState<string | null>(null);
+  const [modalContext, setModalContext] = useState<RemediationContext | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['storage'],
     queryFn: fetchStorage,
   });
 
-  const implementMutation = useMutation({
-    mutationFn: (item: StorageItem) =>
-      markImplemented({
-        recommendationType: 'storage',
-        id: item.id,
-        subscriptionId: item.subscriptionId,
-        resourceName: item.resourceName,
-        resourceId: item.resourceId ?? '',
-        resourceGroup: item.resourceGroup,
-        category: `Storage: ${item.resourceType}`,
-        projectedMonthlySaving: item.estimatedMonthlySaving,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['storage'] });
-      qc.invalidateQueries({ queryKey: ['savings'] });
-      setImplementing(null);
-    },
-  });
-
   const recommendations = data?.data ?? [];
   const totalSaving = data?.summary.totalMonthlySaving ?? 0;
+
+  const openModal = (item: StorageItem) => {
+    setModalContext({
+      type: 'storage',
+      recommendationId: item.id,
+      resourceId: item.resourceId ?? '',
+      resourceName: item.resourceName,
+      resourceType: item.resourceType,
+      resourceGroup: item.resourceGroup,
+      subscriptionId: item.subscriptionId,
+      monthlySaving: item.estimatedMonthlySaving,
+      recommendation: item.recommendation,
+    });
+  };
 
   if (error) {
     return (
@@ -115,24 +112,32 @@ export default function StoragePage() {
             {
               key: 'id',
               label: 'Action',
-              render: (v, row) => (
+              render: (_, row) => (
                 <Button
                   size="sm"
-                  variant="outline"
-                  icon={<CheckCircle className="w-3.5 h-3.5" />}
-                  loading={implementing === String(v)}
-                  onClick={() => {
-                    setImplementing(String(v));
-                    implementMutation.mutate(row as unknown as StorageItem);
-                  }}
+                  variant="primary"
+                  icon={<Zap className="w-3.5 h-3.5" />}
+                  onClick={() => openModal(row as unknown as StorageItem)}
                 >
-                  Implemented
+                  Implement
                 </Button>
               ),
             },
           ]}
         />
       </div>
+
+      {modalContext && (
+        <ImplementationModal
+          context={modalContext}
+          onClose={() => setModalContext(null)}
+          onSuccess={() => {
+            setModalContext(null);
+            qc.invalidateQueries({ queryKey: ['storage'] });
+            qc.invalidateQueries({ queryKey: ['savings'] });
+          }}
+        />
+      )}
     </AppLayout>
   );
 }

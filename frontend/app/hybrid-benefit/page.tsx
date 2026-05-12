@@ -1,58 +1,57 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataTable } from '@/components/ui/DataTable';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
-import { fetchAHB, markImplemented, AHBItem } from '@/lib/api';
+import { ImplementationModal } from '@/components/ui/ImplementationModal';
+import { fetchAHB, AHBItem } from '@/lib/api';
+import { RemediationContext } from '@/lib/remediationMeta';
 import { formatCurrency } from '@/lib/utils';
-import { Award, DollarSign, Copy, CheckCircle } from 'lucide-react';
+import { Award, DollarSign, Copy, CheckCircle, Zap } from 'lucide-react';
 import { useState } from 'react';
 
 export default function HybridBenefitPage() {
   const qc = useQueryClient();
-  const [implementing, setImplementing] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [modalContext, setModalContext] = useState<RemediationContext | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['ahb'],
     queryFn: fetchAHB,
   });
 
-  const implementMutation = useMutation({
-    mutationFn: (item: AHBItem) =>
-      markImplemented({
-        recommendationType: 'ahb',
-        id: item.id,
-        subscriptionId: item.subscriptionId,
-        resourceName: item.resourceName,
-        resourceId: item.resourceId,
-        resourceGroup: item.resourceGroup,
-        category: 'Azure Hybrid Benefit',
-        projectedMonthlySaving: item.savingWithAHB,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['ahb'] });
-      qc.invalidateQueries({ queryKey: ['savings'] });
-      setImplementing(null);
-    },
-  });
-
   const copyPowerShell = async (command: string, id: string) => {
     try {
-      await navigator.clipboard.writeText(command);
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(command);
+      }
       setCopied(id);
       setTimeout(() => setCopied(null), 2000);
     } catch {
-      // Fallback
+      // Clipboard API not available
     }
   };
 
   const recommendations = data?.data ?? [];
   const totalSaving = data?.summary.totalMonthlySaving ?? 0;
+
+  const openModal = (item: AHBItem) => {
+    setModalContext({
+      type: 'ahb',
+      recommendationId: item.id,
+      resourceId: item.resourceId,
+      resourceName: item.resourceName,
+      resourceType: item.resourceType,
+      resourceGroup: item.resourceGroup,
+      subscriptionId: item.subscriptionId,
+      monthlySaving: item.savingWithAHB,
+      powershellCommand: item.powershellCommand,
+    });
+  };
 
   if (error) {
     return (
@@ -141,7 +140,7 @@ export default function HybridBenefitPage() {
             },
             {
               key: 'powershellCommand',
-              label: 'Enable AHB',
+              label: 'PS Command',
               render: (v, row) => (
                 <Button
                   size="sm"
@@ -162,24 +161,32 @@ export default function HybridBenefitPage() {
             {
               key: 'id',
               label: 'Action',
-              render: (v, row) => (
+              render: (_, row) => (
                 <Button
                   size="sm"
                   variant="primary"
-                  icon={<CheckCircle className="w-3.5 h-3.5" />}
-                  loading={implementing === String(v)}
-                  onClick={() => {
-                    setImplementing(String(v));
-                    implementMutation.mutate(row as unknown as AHBItem);
-                  }}
+                  icon={<Zap className="w-3.5 h-3.5" />}
+                  onClick={() => openModal(row as unknown as AHBItem)}
                 >
-                  Implemented
+                  Implement
                 </Button>
               ),
             },
           ]}
         />
       </div>
+
+      {modalContext && (
+        <ImplementationModal
+          context={modalContext}
+          onClose={() => setModalContext(null)}
+          onSuccess={() => {
+            setModalContext(null);
+            qc.invalidateQueries({ queryKey: ['ahb'] });
+            qc.invalidateQueries({ queryKey: ['savings'] });
+          }}
+        />
+      )}
     </AppLayout>
   );
 }
