@@ -3,7 +3,7 @@
     Deploys AzureOptimize Pro to a client Azure tenant.
 
 .DESCRIPTION
-    Deploys the full AzureOptimize Pro stack:
+    Provisions the full AzureOptimize Pro Azure infrastructure:
     - Azure Static Web App (dashboard)
     - Azure Function App (API)
     - Azure Storage Account (data + reports)
@@ -11,10 +11,8 @@
     - User-Assigned Managed Identity
     - Role assignments across all subscriptions
 
-    After infrastructure is provisioned, automatically:
-    - Builds and deploys the API (TypeScript compile + zip deploy)
-    - Builds and deploys the frontend (Next.js static export + SWA deploy)
-    - Runs automated smoke tests to verify everything is working
+    Code deployment is handled automatically by GitHub Actions on every push.
+    This script handles only the one-time Azure infrastructure setup.
 
 .PARAMETER TenantId
     The client's Azure tenant ID.
@@ -31,16 +29,27 @@
 .PARAMETER ResourceGroupName
     Name of the resource group. Default: rg-azureoptimize
 
+.PARAMETER GitHubToken
+    Optional GitHub Personal Access Token (contents: read+write) to automatically
+    configure GitHub Actions secrets and trigger the first deployment.
+
+.PARAMETER GitHubRepo
+    GitHub repo in owner/repo format. Default: TanishqBansal2645/AzureOptimize-Pro
+
 .PARAMETER Update
-    Switch to redeploy app code only (preserves data, skips infrastructure).
+    Re-run infrastructure update only (preserves data, skips code deployment setup).
 
 .PARAMETER Remove
-    Switch to remove all deployed resources.
+    Delete all deployed Azure resources.
 
 .PARAMETER SkipTests
-    Skip the automated smoke tests after deployment.
+    Skip the smoke tests after deployment.
 
 .EXAMPLE
+    # Fresh install with automatic GitHub setup
+    .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -AdminPrincipalId "yyy" -AppClientId "zzz" -GitHubToken "ghp_..."
+
+    # Fresh install - manual GitHub secret setup
     .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -AdminPrincipalId "yyy" -AppClientId "zzz"
 #>
 
@@ -56,6 +65,8 @@ param(
 
     [string] $Location = "eastus",
     [string] $ResourceGroupName = "rg-azureoptimize",
+    [string] $GitHubToken = "",
+    [string] $GitHubRepo = "TanishqBansal2645/AzureOptimize-Pro",
 
     [switch] $Update,
     [switch] $Remove,
@@ -96,15 +107,46 @@ function Show-Banner {
     Write-Host ""
 }
 
-function Invoke-Step {
-    param([string]$Name, [scriptblock]$Action)
+function Set-GitHubSecret {
+    param(
+        [string] $Token,
+        [string] $Repo,
+        [string] $Name,
+        [string] $Value
+    )
+
+    $pythonCode = @'
+import sys, json, base64, urllib.request
+from nacl.public import SealedBox, PublicKey
+token, repo, name = sys.argv[1], sys.argv[2], sys.argv[3]
+value = sys.stdin.buffer.read()
+req = urllib.request.Request(
+    f"https://api.github.com/repos/{repo}/actions/secrets/public-key",
+    headers={"Authorization": f"Bearer {token}", "User-Agent": "AzureOptimize-Deploy"})
+with urllib.request.urlopen(req) as r:
+    pk = json.loads(r.read())
+box = SealedBox(PublicKey(base64.b64decode(pk["key"])))
+enc = base64.b64encode(box.encrypt(value)).decode()
+data = json.dumps({"encrypted_value": enc, "key_id": pk["key_id"]}).encode()
+urllib.request.urlopen(urllib.request.Request(
+    f"https://api.github.com/repos/{repo}/actions/secrets/{name}",
+    data=data, method="PUT",
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+             "User-Agent": "AzureOptimize-Deploy"}))
+'@
+
+    $pyScript = Join-Path $env:TEMP "azopt_gh_secret.py"
+    Set-Content -Path $pyScript -Value $pythonCode -Encoding utf8
+
     try {
-        & $Action
-        Write-Success $Name
+        $valueBytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
+        $result = $valueBytes | python $pyScript $Token $Repo $Name 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Exit code $LASTEXITCODE`: $result"
+        }
     }
-    catch {
-        Write-Fail "$Name failed: $_"
-        throw
+    finally {
+        Remove-Item $pyScript -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -142,7 +184,6 @@ if ($Remove) {
 Show-Banner
 Write-Host "Running pre-flight checks..." -ForegroundColor Cyan
 
-# Check required tools
 $tools = @{
     "az"   = "Azure CLI"
     "node" = "Node.js"
@@ -158,7 +199,6 @@ foreach ($tool in $tools.Keys) {
 }
 Write-Success "All required tools found (az, node, npm)"
 
-# Verify project structure
 $scriptDir = $PSScriptRoot
 $projectRoot = Split-Path $scriptDir -Parent
 $apiPath = Join-Path $projectRoot "api"
@@ -173,7 +213,6 @@ foreach ($path in @($apiPath, $frontendPath, $bicepPath)) {
 }
 Write-Success "Project structure verified"
 
-# Validate required parameters
 if (-not $Update) {
     if (-not $AdminPrincipalId) {
         Write-Fail "AdminPrincipalId is required for fresh deployment"
@@ -187,7 +226,7 @@ if (-not $Update) {
     }
 }
 
-$totalSteps = 8
+$totalSteps = 6
 
 # ─── Step 1: Login ────────────────────────────────────────────────────────────
 
@@ -204,7 +243,7 @@ catch {
     exit 1
 }
 
-# ─── Step 2: Infrastructure (skip if -Update) ─────────────────────────────────
+# ─── Steps 2–3: Infrastructure (skip if -Update) ──────────────────────────────
 
 if (-not $Update) {
     Write-Step 2 $totalSteps "Provisioning infrastructure (Bicep)"
@@ -217,13 +256,13 @@ if (-not $Update) {
             --resource-group $ResourceGroupName `
             --template-file $bicepPath `
             --parameters "adminPrincipalId=$AdminPrincipalId" "appClientId=$AppClientId" "tenantId=$TenantId" `
-            --output json 2>&1
+            --output json --only-show-errors 2>&1
 
         if ($LASTEXITCODE -ne 0) {
-            throw "Bicep deployment failed: $deployOutput"
+            throw "Bicep deployment failed: $($deployOutput -join "`n")"
         }
 
-        $deployOutput = $deployOutput | ConvertFrom-Json
+        $deployOutput = ($deployOutput | Where-Object { $_ -notmatch "^WARNING" }) -join "" | ConvertFrom-Json
 
         $outputs = $deployOutput.properties.outputs
         $script:dashboardUrl = $outputs.dashboardUrl.value
@@ -231,8 +270,6 @@ if (-not $Update) {
         $script:managedIdentityPrincipalId = $outputs.managedIdentityPrincipalId.value
         $script:storageAccountName = $outputs.storageAccountName.value
         $script:keyVaultUri = $outputs.keyVaultUri.value
-
-        # Derive function app name from URL
         $script:functionAppName = ($script:functionAppUrl -replace "https://", "" -replace ".azurewebsites.net", "")
 
         Write-Success "Infrastructure deployed"
@@ -242,7 +279,6 @@ if (-not $Update) {
         exit 1
     }
 
-    # Step 3: Assign roles
     Write-Step 3 $totalSteps "Assigning Reader roles on all subscriptions"
     try {
         $subscriptions = az account list --query "[?state=='Enabled'].id" -o tsv
@@ -266,7 +302,6 @@ if (-not $Update) {
     }
 }
 else {
-    # On -Update: read existing outputs
     Write-Step 2 $totalSteps "Reading existing deployment outputs"
     try {
         $deployOutput = az deployment group show `
@@ -275,7 +310,6 @@ else {
             --output json 2>$null | ConvertFrom-Json
 
         if (-not $deployOutput) {
-            # Try to get from resource list
             $script:functionAppName = az functionapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv
             $script:functionAppUrl = "https://$($script:functionAppName).azurewebsites.net"
             $script:dashboardUrl = "https://$(az staticwebapp list --resource-group $ResourceGroupName --query '[0].defaultHostname' -o tsv)"
@@ -295,139 +329,91 @@ else {
     catch {
         Write-Warn "Could not read all deployment outputs, continuing anyway: $_"
     }
+
     Write-Step 3 $totalSteps "Skipping infrastructure (update mode)"
     Write-Success "Skipped (update mode)"
 }
 
-# ─── Step 4: Build & Deploy API ───────────────────────────────────────────────
+# ─── Step 4: Configure GitHub Actions deployment ──────────────────────────────
 
-Write-Step 4 $totalSteps "Building and deploying API"
-Write-Host "  Compiling TypeScript..." -ForegroundColor Gray
+Write-Step 4 $totalSteps "Configuring GitHub Actions deployment"
 
-$zipPath = Join-Path $env:TEMP "azureoptimize-api.zip"
+$swaName = az staticwebapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv
+$deployToken = az staticwebapp secrets list --name $swaName --resource-group $ResourceGroupName --query "properties.apiKey" -o tsv
+$publishProfile = az functionapp deployment list-publishing-profiles --name $script:functionAppName --resource-group $ResourceGroupName --xml
 
-try {
-    Push-Location $apiPath
+if ($GitHubToken) {
+    Write-Host "  Setting GitHub secrets..." -ForegroundColor Gray
 
-    # Install all deps (including dev for TypeScript compile)
-    npm install --silent
-    if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+    try {
+        Set-GitHubSecret -Token $GitHubToken -Repo $GitHubRepo -Name "AZURE_STATIC_WEB_APPS_API_TOKEN" -Value $deployToken
+        Write-Host "  v AZURE_STATIC_WEB_APPS_API_TOKEN" -ForegroundColor Green
 
-    # Compile TypeScript
-    npm run build
-    if ($LASTEXITCODE -ne 0) { throw "TypeScript compilation failed - check for type errors above" }
-
-    # Install production-only deps for packaging
-    Write-Host "  Packaging for deployment..." -ForegroundColor Gray
-
-    # Create a temp staging directory
-    $stagingDir = Join-Path $env:TEMP "azureoptimize-api-staging"
-    if (Test-Path $stagingDir) { Remove-Item $stagingDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
-
-    # Copy everything needed
-    Copy-Item -Path (Join-Path $apiPath "dist") -Destination (Join-Path $stagingDir "dist") -Recurse
-    Copy-Item -Path (Join-Path $apiPath "package.json") -Destination $stagingDir
-    Copy-Item -Path (Join-Path $apiPath "host.json") -Destination $stagingDir
-
-    # Install production dependencies in staging
-    Push-Location $stagingDir
-    npm install --production --silent
-    if ($LASTEXITCODE -ne 0) { throw "npm install --production failed" }
-    Pop-Location
-
-    # Create zip
-    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-    Compress-Archive -Path "$stagingDir\*" -DestinationPath $zipPath -CompressionLevel Optimal
-
-    # Deploy to Azure
-    Write-Host "  Deploying to Function App '$($script:functionAppName)'..." -ForegroundColor Gray
-    az functionapp deployment source config-zip `
-        --resource-group $ResourceGroupName `
-        --name $script:functionAppName `
-        --src $zipPath `
-        --output none
-
-    if ($LASTEXITCODE -ne 0) { throw "Function App zip deploy failed" }
-
-    Pop-Location
-    Write-Success "API built and deployed"
-}
-catch {
-    if ((Get-Location).Path -ne $projectRoot) { Pop-Location }
-    Write-Fail "API deployment failed: $_"
-    exit 1
-}
-finally {
-    # Cleanup temp files
-    if (Test-Path $zipPath) { Remove-Item $zipPath -Force -ErrorAction SilentlyContinue }
-    if (Test-Path $stagingDir) { Remove-Item $stagingDir -Recurse -Force -ErrorAction SilentlyContinue }
-}
-
-# ─── Step 5: Build & Deploy Frontend ──────────────────────────────────────────
-
-Write-Step 5 $totalSteps "Building and deploying frontend"
-
-try {
-    Push-Location $frontendPath
-
-    # Write production env file
-    $envContent = @"
-NEXT_PUBLIC_AZURE_CLIENT_ID=$AppClientId
-NEXT_PUBLIC_AZURE_TENANT_ID=$TenantId
-NEXT_PUBLIC_AZURE_REDIRECT_URI=$($script:dashboardUrl)
-NEXT_PUBLIC_API_BASE_URL=$($script:functionAppUrl)/api
-NEXT_PUBLIC_ADMIN_PRINCIPAL_ID=$AdminPrincipalId
-"@
-    Set-Content -Path (Join-Path $frontendPath ".env.production") -Value $envContent -Encoding utf8
-
-    Write-Host "  Installing frontend dependencies..." -ForegroundColor Gray
-    npm install --silent
-    if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
-
-    Write-Host "  Building Next.js static export..." -ForegroundColor Gray
-    npm run build
-    if ($LASTEXITCODE -ne 0) { throw "Next.js build failed" }
-
-    # Deploy to Static Web App
-    $swaName = az staticwebapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv
-    $deployToken = az staticwebapp secrets list --name $swaName --resource-group $ResourceGroupName --query "properties.apiKey" -o tsv
-
-    if (-not $deployToken) {
-        throw "Could not retrieve Static Web App deployment token"
+        Set-GitHubSecret -Token $GitHubToken -Repo $GitHubRepo -Name "AZURE_FUNCTIONAPP_PUBLISH_PROFILE" -Value $publishProfile
+        Write-Host "  v AZURE_FUNCTIONAPP_PUBLISH_PROFILE" -ForegroundColor Green
+    }
+    catch {
+        Write-Fail "Failed to set GitHub secrets: $_"
+        Write-Host "  Ensure Python + PyNaCl is installed: pip install PyNaCl" -ForegroundColor Gray
+        exit 1
     }
 
-    # Check for SWA CLI
-    $swaCli = Get-Command swa -ErrorAction SilentlyContinue
-    if (-not $swaCli) {
-        Write-Host "  Installing SWA CLI..." -ForegroundColor Gray
-        npm install -g @azure/static-web-apps-cli --silent
+    Write-Host "  Triggering deployment workflows..." -ForegroundColor Gray
+    $ghHeaders = @{
+        Authorization          = "Bearer $GitHubToken"
+        Accept                 = "application/vnd.github.v3+json"
+        "X-GitHub-Api-Version" = "2022-11-28"
     }
-
-    Write-Host "  Deploying to Static Web App '$swaName'..." -ForegroundColor Gray
-    swa deploy ./out --deployment-token $deployToken --env production
-
-    if ($LASTEXITCODE -ne 0) { throw "SWA deploy failed" }
-
-    Pop-Location
-    Write-Success "Frontend built and deployed"
+    try {
+        Invoke-RestMethod -Method POST -Uri "https://api.github.com/repos/$GitHubRepo/actions/workflows/deploy-api.yml/dispatches" `
+            -Headers $ghHeaders -Body '{"ref":"main"}' -ContentType "application/json" | Out-Null
+        Invoke-RestMethod -Method POST -Uri "https://api.github.com/repos/$GitHubRepo/actions/workflows/deploy-frontend.yml/dispatches" `
+            -Headers $ghHeaders -Body '{"ref":"main"}' -ContentType "application/json" | Out-Null
+        Write-Success "Deployment workflows triggered"
+        Write-Host "  Track progress: https://github.com/$GitHubRepo/actions" -ForegroundColor Gray
+        Write-Host "  Waiting 4 minutes for deployment to complete..." -ForegroundColor Gray
+        Start-Sleep -Seconds 240
+    }
+    catch {
+        Write-Warn "Could not trigger workflows automatically: $_"
+        Write-Host "  Manually run: https://github.com/$GitHubRepo/actions" -ForegroundColor Cyan
+        exit 0
+    }
 }
-catch {
-    if ((Get-Location).Path -ne $projectRoot) { Pop-Location }
-    Write-Warn "Frontend deployment failed: $_"
-    Write-Host "  You can deploy the frontend manually later with 'swa deploy'" -ForegroundColor Gray
+else {
+    # Save credentials to temp files for manual GitHub setup
+    $secretsDir = Join-Path $env:TEMP "azopt-github-secrets"
+    New-Item -ItemType Directory -Path $secretsDir -Force | Out-Null
+    Set-Content -Path (Join-Path $secretsDir "AZURE_STATIC_WEB_APPS_API_TOKEN.txt") -Value $deployToken -Encoding utf8
+    Set-Content -Path (Join-Path $secretsDir "AZURE_FUNCTIONAPP_PUBLISH_PROFILE.xml") -Value $publishProfile -Encoding utf8
+
+    Write-Success "Deployment credentials retrieved"
+    Write-Host ""
+    Write-Host "  ─── ACTION REQUIRED ────────────────────────────────────────" -ForegroundColor Yellow
+    Write-Host "  Add 2 secrets at: https://github.com/$GitHubRepo/settings/secrets/actions" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  1. AZURE_STATIC_WEB_APPS_API_TOKEN" -ForegroundColor White
+    Write-Host "     $(Join-Path $secretsDir 'AZURE_STATIC_WEB_APPS_API_TOKEN.txt')" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  2. AZURE_FUNCTIONAPP_PUBLISH_PROFILE" -ForegroundColor White
+    Write-Host "     $(Join-Path $secretsDir 'AZURE_FUNCTIONAPP_PUBLISH_PROFILE.xml')" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  After adding, push a commit or run workflows manually." -ForegroundColor Yellow
+    Write-Host "  ────────────────────────────────────────────────────────────" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  TIP: Next time pass -GitHubToken to automate this step." -ForegroundColor Gray
+
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Green
+    Write-Host "    Infrastructure ready! Complete GitHub setup above." -ForegroundColor Green
+    Write-Host "================================================================" -ForegroundColor Green
+    exit 0
 }
 
-# ─── Step 6: Wait for API warm-up ─────────────────────────────────────────────
+# ─── Step 5: Health check ─────────────────────────────────────────────────────
 
-Write-Step 6 $totalSteps "Waiting for API to warm up (30s)"
-Write-Host "  Azure Functions on Consumption plan need ~30s to start..." -ForegroundColor Gray
-Start-Sleep -Seconds 30
-
-# ─── Step 7: Health check ─────────────────────────────────────────────────────
-
-Write-Step 7 $totalSteps "API health check"
-$maxRetries = 5
+Write-Step 5 $totalSteps "API health check"
+$maxRetries = 8
 $retryDelay = 15
 $healthOk = $false
 
@@ -435,7 +421,7 @@ for ($i = 1; $i -le $maxRetries; $i++) {
     try {
         $healthResponse = Invoke-RestMethod -Uri "$($script:functionAppUrl)/api/health" -Method GET -TimeoutSec 20
         if ($healthResponse.status -eq "healthy") {
-            Write-Success "API is healthy (tenant: $($healthResponse.environment.tenantId), storage: $($healthResponse.environment.storageAccount))"
+            Write-Success "API is healthy (tenant: $($healthResponse.environment.tenantId))"
             $healthOk = $true
             break
         }
@@ -453,12 +439,13 @@ for ($i = 1; $i -le $maxRetries; $i++) {
 
 if (-not $healthOk) {
     Write-Warn "Health check did not pass after $maxRetries attempts. API may still be starting."
+    Write-Host "  Check deployment logs: https://github.com/$GitHubRepo/actions" -ForegroundColor Gray
 }
 
-# ─── Step 8: Automated Tests ──────────────────────────────────────────────────
+# ─── Step 6: Smoke tests ──────────────────────────────────────────────────────
 
 if (-not $SkipTests) {
-    Write-Step 8 $totalSteps "Running automated smoke tests"
+    Write-Step 6 $totalSteps "Running automated smoke tests"
     $testScript = Join-Path $scriptDir "Test-Deploy.ps1"
 
     if (Test-Path $testScript) {
@@ -472,11 +459,11 @@ if (-not $SkipTests) {
         }
     }
     else {
-        Write-Warn "Test script not found at $testScript. Skipping tests."
+        Write-Warn "Test script not found. Skipping."
     }
 }
 else {
-    Write-Step 8 $totalSteps "Skipping tests (-SkipTests specified)"
+    Write-Step 6 $totalSteps "Skipping tests (-SkipTests specified)"
     Write-Success "Skipped"
 }
 
@@ -494,17 +481,17 @@ Write-Host "  Key Vault URI  : $($script:keyVaultUri)" -ForegroundColor White
 Write-Host ""
 Write-Host "  Next steps:" -ForegroundColor Cyan
 if (-not $Update) {
-    Write-Host "  1. Update Entra App redirect URI to: $($script:dashboardUrl)/.auth/login/aad/callback" -ForegroundColor White
-    Write-Host "     Command: az ad app update --id $AppClientId --web-redirect-uris '$($script:dashboardUrl)/.auth/login/aad/callback'" -ForegroundColor Gray
+    Write-Host "  1. Update Entra App redirect URI:" -ForegroundColor White
+    Write-Host "     az ad app update --id $AppClientId --web-redirect-uris 'http://localhost:3000' '$($script:dashboardUrl)'" -ForegroundColor Gray
 }
 Write-Host "  2. Open the dashboard and sign in with your Microsoft account" -ForegroundColor White
 Write-Host "  3. First cost data appears within 4 hours (timer-triggered)" -ForegroundColor White
-Write-Host "  4. To trigger data collection immediately, use the Admin refresh endpoints" -ForegroundColor White
+Write-Host "  4. Future code updates deploy automatically on git push" -ForegroundColor White
 Write-Host ""
-Write-Host "  Record these values for the client:" -ForegroundColor Yellow
-Write-Host "  - Dashboard URL    : $($script:dashboardUrl)" -ForegroundColor Yellow
-Write-Host "  - Storage Account  : $($script:storageAccountName)" -ForegroundColor Yellow
 if (-not $Update) {
+    Write-Host "  Record these values:" -ForegroundColor Yellow
+    Write-Host "  - Dashboard URL    : $($script:dashboardUrl)" -ForegroundColor Yellow
+    Write-Host "  - Storage Account  : $($script:storageAccountName)" -ForegroundColor Yellow
     Write-Host "  - Tenant ID        : $TenantId" -ForegroundColor Yellow
     Write-Host "  - App Client ID    : $AppClientId" -ForegroundColor Yellow
     Write-Host "  - Admin Object ID  : $AdminPrincipalId" -ForegroundColor Yellow
