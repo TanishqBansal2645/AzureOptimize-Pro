@@ -40,9 +40,9 @@ export const loginRequest = {
   ],
 };
 
-// API token scopes — used for silent/interactive token acquisition
+// API token scopes — must match loginRequest scope exactly so MSAL finds a cache hit
 export const apiTokenRequest = {
-  scopes: [`api://${process.env.NEXT_PUBLIC_AZURE_CLIENT_ID ?? ''}/.default`],
+  scopes: [`api://${process.env.NEXT_PUBLIC_AZURE_CLIENT_ID ?? ''}/user_impersonation`],
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
