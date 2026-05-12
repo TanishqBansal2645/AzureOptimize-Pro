@@ -1,6 +1,6 @@
 # AzureOptimize Pro — Project Guide
 
-> **Version:** 1.0  
+> **Version:** 1.1  
 > **Last Updated:** 2026-05-12  
 > **Price:** $1,000 one-time per client tenant  
 > **Built by:** Tech Plus Talent
@@ -41,11 +41,14 @@ Client's Azure Tenant
   └───────────────────────┘    └─────────────────────────┘  └──────────────────┘
 
   Managed Identity has:
-    - Reader role         → all subscriptions (resource inspection)
-    - Cost Management Reader → all subscriptions (billing data)
-    - Monitoring Reader   → all subscriptions (metrics)
+    - Reader role              → all subscriptions (resource inspection)
+    - Cost Management Reader   → all subscriptions (billing data)
+    - Monitoring Reader        → all subscriptions (metrics)
+    - Contributor              → all subscriptions (write operations for automated remediation)
 ──────────────────────────────────────────────────────────────────
 ```
+
+> **Note:** The Contributor role is required for automated remediation (deleting idle resources, resizing VMs, enabling AHB, scaling databases). Without it, the Implement button will work but all actions will return a "Failed: insufficient permissions" error.
 
 ### Infrastructure Cost Per Client Tenant
 
@@ -73,7 +76,7 @@ The client pays this from their own Azure subscription. It is effectively free.
 | Database/State | Azure Table Storage (PartitionKey = tenantId/subscriptionId) |
 | File Export | ExcelJS (server-side Excel generation) |
 | Authentication | Azure Entra ID (MSAL) — SSO with client's Microsoft accounts |
-| Azure SDKs | @azure/arm-costmanagement, @azure/arm-advisor, @azure/arm-resourcegraph, @azure/monitor-query, @azure/arm-resources, @azure/identity |
+| Azure SDKs | @azure/arm-costmanagement, @azure/arm-advisor, @azure/arm-resourcegraph, @azure/monitor-query, @azure/arm-resources, @azure/arm-compute, @azure/arm-sql, @azure/identity |
 | Secrets | Azure Key Vault |
 | Infrastructure | Bicep template + PowerShell installer |
 | Code Deployment | GitHub Actions (auto-deploy on push to `main`) |
@@ -83,10 +86,12 @@ The client pays this from their own Azure subscription. It is effectively free.
 ## Authentication Model
 
 - **SSO via Azure Entra ID (MSAL)** — users log in with their existing Microsoft/Azure account
-- **Admin:** set via `ADMIN_PRINCIPAL_ID` environment variable (Entra Object ID) — full access including settings
-- **Analyst:** can view all data, mark recommendations as implemented — set per user in app settings
+- **Admin:** set via `ADMIN_PRINCIPAL_ID` environment variable (Entra Object ID) — full access including settings and executing automated remediations
+- **Analyst:** can view all data and download reports — set per user in app settings
 - **Viewer:** read-only, can download reports — set per user in app settings
 - No passwords stored anywhere. No external auth service needed.
+
+> **Remediation is admin-only.** The `/api/remediation/execute` endpoint returns 403 for non-admin users. Only the account whose Entra Object ID matches `ADMIN_PRINCIPAL_ID` can trigger automated fixes.
 
 ---
 
@@ -219,30 +224,96 @@ Create and monitor spend budgets with threshold alerts.
 The single most important module for demonstrating ROI to clients.
 
 **Features:**
-- Every recommendation can be marked "Implemented" with one click
+- Savings are logged automatically when an implementation succeeds (automated or manual)
 - Logs: date, category, resource, projected monthly saving, who implemented
 - Running total: savings implemented this month / all time
 - ROI card: license cost ($1,000) vs cumulative savings
-- Shows payback date (date when savings exceeded license cost)
+- Monthly savings bar chart (last 12 months)
+- Shows payback achieved banner when cumulative savings exceed $1,000
 
 **Storage:** Azure Table Storage
 
 ---
 
 ### Module 10 — Monthly Excel Report
-Generated on-demand or scheduled monthly. Sent via email or downloaded from dashboard.
+Generated on-demand, downloaded directly from the dashboard.
 
-**Tabs:**
+**Tabs (2):**
 
 | Tab | Contents |
 |---|---|
-| Executive Summary | Month, total spend, MoM delta, savings implemented, potential savings remaining |
-| Savings Implemented | Date, resource, category, action taken, monthly saving ($) |
-| Open Recommendations | Priority, category, resource, recommendation, est. saving ($), effort level |
-| Cost Breakdown | By service, by resource group, top 20 resources |
-| Budget Status | Budget name, limit, spent, % used, status |
+| Cost & Savings Overview | MTD spend, MoM delta, forecast, savings implemented (this month + all time), open savings potential, top 20 Azure services by spend, budget status |
+| Recommendations | Open opportunities (priority-coloured: High/Medium/Low) + all implemented savings in one place |
 
-**Format:** `.xlsx`, fully styled with colors, borders, and auto-fit columns.
+**Format:** `.xlsx`, fully styled with corporate colour palette, frozen headers, and number formatting.
+
+---
+
+### Module 11 — Implementation Log
+Full audit trail of every remediation run initiated through the tool.
+
+**Features:**
+- Shows all remediation runs across all categories with status (Succeeded / Failed / Running / Manual)
+- Columns: date, resource, category, resource group, action taken, status badge, monthly saving, initiated by
+- Auto-refreshes every 30 seconds to capture in-progress runs
+- 4 summary cards: total monthly saving captured, automated count, manual actions, failures
+
+**Storage:** Azure Table Storage (`implementations` table)
+
+---
+
+## Automated Remediation
+
+Every recommendation page has an **Implement** button. Clicking it opens a pre-implementation disclaimer modal before any action is taken.
+
+### Disclaimer Modal
+
+Shows before every implementation:
+- **Resource identity** — name, type, resource group, subscription ID
+- **Action summary** — plain-English description of what will happen
+- **Impact assessment** — risk level (Low/Medium/High), expected downtime, reversibility, recommended timing
+- **Cost savings** — monthly and annual saving if implemented
+- **What will happen** — bullet list of impacts specific to the action type
+- **Acknowledge checkbox** — user must tick "I acknowledge the impacts" before proceeding
+
+The Proceed button is disabled until the checkbox is ticked.
+
+### Execution Modes
+
+| Category | Execution | Notes |
+|---|---|---|
+| Idle Resources | **Automated** | ARM delete via Managed Identity |
+| VM Rightsizing | **Automated** | Deallocate → resize → start |
+| AHB (Windows VM) | **Automated** | `licenseType` update via ARM |
+| AHB (SQL VM) | **Manual** | PowerShell command shown post-click |
+| Storage — Premium Disk | **Automated** | SKU update via ARM |
+| Storage — Storage Account | **Manual** | CLI commands shown post-click |
+| Storage — Log Analytics | **Automated** | Retention set to 31 days via ARM |
+| Database — Azure SQL | **Automated** | DTU/tier scaling via ARM |
+| Database — Cosmos DB | **Manual** | Azure Portal link + migration docs |
+| Reservations | **Manual** | Azure Portal RI purchase link |
+
+### Implementation Lifecycle
+
+```
+User clicks Implement
+      ↓
+Disclaimer modal opens (risk, downtime, reversibility, cost impact)
+      ↓
+User ticks "I acknowledge" → clicks Proceed
+      ↓
+API: record status = 'running' in implementations table
+      ↓
+API: execute ARM operation (or build manual instructions)
+      ↓
+API: update status to 'succeeded' / 'manual' / 'failed'
+API: fire-and-forget → log to savings tracker
+API: fire-and-forget → mark source recommendation as implemented
+      ↓
+Modal shows result: success message / manual steps / error
+      ↓
+Implementation Log page shows the run record
+```
 
 ---
 
@@ -326,6 +397,15 @@ Resource Graph   ──────►  scan-ahb (daily)             ──► A
                           generate-excel (on-demand)    ──► Download Report
                            └── reads Table Storage
                            └── writes to Blob Storage
+
+Admin user       ──────►  remediation/execute (POST)   ──► Disclaimer modal
+(Implement btn)            ├── ARM write (Managed Id)       → success/manual/fail
+                           ├── implementations table (status lifecycle)
+                           ├── savings log (fire-and-forget)
+                           └── mark recommendation implemented (fire-and-forget)
+
+                          implementations (GET)          ──► Implementation Log
+                           └── reads implementations table
 ```
 
 ---
@@ -347,14 +427,18 @@ azureoptimize-pro/
 │   │   ├── databases/           # Database Optimizer
 │   │   ├── budgets/             # Budget Manager
 │   │   ├── savings/             # Savings Tracker
-│   │   └── reports/             # Excel Report Generator
+│   │   ├── reports/             # Excel Report Generator
+│   │   └── implementations/     # Implementation Log (all remediation runs)
 │   ├── components/
-│   │   ├── ui/                  # shadcn/ui components
+│   │   ├── ui/
+│   │   │   ├── ImplementationModal.tsx  # Pre-implementation disclaimer + execution modal
+│   │   │   └── ...              # Other shadcn/ui components
 │   │   ├── charts/              # Recharts wrappers
 │   │   └── layout/              # Sidebar, Header, Nav
 │   └── lib/
 │       ├── auth.ts              # MSAL config
 │       ├── api.ts               # API client
+│       ├── remediationMeta.ts   # Risk profiles, action descriptions per remediation type
 │       └── utils.ts
 │
 ├── api/                         # Azure Functions v4
@@ -370,8 +454,10 @@ azureoptimize-pro/
 │   │   │   ├── triggerRefresh.ts        # HTTP POST /api/refresh — runs all 8 scanners in parallel
 │   │   │   ├── generateExcel.ts         # HTTP: on-demand Excel export
 │   │   │   ├── getBudgets.ts            # HTTP: budget list + sync
-│   │   │   ├── markImplemented.ts       # HTTP: mark recommendation implemented
+│   │   │   ├── markImplemented.ts       # HTTP: mark recommendation implemented (savings log)
 │   │   │   ├── getSavings.ts            # HTTP: savings tracker data
+│   │   │   ├── remediateResource.ts     # HTTP POST /api/remediation/execute — ARM automation (admin only)
+│   │   │   ├── getImplementations.ts    # HTTP GET /api/implementations — full remediation audit log
 │   │   │   └── health.ts                # HTTP GET /api/health — unauthenticated
 │   │   └── lib/
 │   │       ├── azure/
@@ -379,7 +465,8 @@ azureoptimize-pro/
 │   │       │   ├── resourceGraph.ts
 │   │       │   ├── monitorMetrics.ts
 │   │       │   ├── advisor.ts
-│   │       │   └── retailPrices.ts
+│   │       │   ├── retailPrices.ts
+│   │       │   └── remediation.ts       # ARM write operations (delete, resize, AHB, scale)
 │   │       ├── auth/
 │   │       │   └── validateUser.ts
 │   │       └── storage/

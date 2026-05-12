@@ -76,10 +76,12 @@ Creates the Entra App Registration, grants admin consent, and prints the exact d
 |------|--------|------|
 | 1 | Login to Azure | <30s |
 | 2 | Bicep: Storage, Function App, Static Web App, Key Vault, Managed Identity | 5–8 min |
-| 3 | RBAC: Reader + Cost Management Reader + Monitoring Reader on all tenant subscriptions | <1 min |
+| 3 | RBAC: Reader + Cost Management Reader + Monitoring Reader + **Contributor** on all tenant subscriptions | <1 min |
 | 4 | Configure GitHub Actions secrets (if `-GitHubToken` provided) and trigger first deploy | 4 min |
 | 5 | API health check (retries 8×) | <2 min |
 | 6 | Smoke tests | <1 min |
+
+> **Contributor role:** Required for automated remediation (deleting idle resources, resizing VMs, enabling AHB, scaling databases). Without it, scanning and reporting work normally, but the Implement button will fail with a permissions error.
 
 **Total: ~12–15 minutes**
 
@@ -192,6 +194,17 @@ az role assignment create `
   --assignee $miOid `
   --role "Cost Management Reader" `
   --scope "/providers/Microsoft.Management/managementGroups/$mgmtGroupId"
+```
+
+### Implement button returns "Remediation failed: insufficient permissions"
+The Managed Identity is missing the Contributor role on one or more subscriptions. Re-run the deploy script with `-Update` to re-apply RBAC, or assign manually:
+```powershell
+$miOid = az identity list --resource-group rg-azureoptimize --query "[0].principalId" -o tsv
+$subId = "<SUBSCRIPTION_ID>"
+az role assignment create `
+  --assignee $miOid `
+  --role "Contributor" `
+  --scope "/subscriptions/$subId"
 ```
 
 ---
