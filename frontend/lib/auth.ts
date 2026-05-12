@@ -29,12 +29,18 @@ const msalConfig: Configuration = {
   },
 };
 
-// Login scopes — basic identity only; keeps login reliable regardless of API scope consent state
+// Login scopes — include the API scope so the token is cached from the first login.
+// Admin consent is pre-granted so users never see a consent prompt.
 export const loginRequest = {
-  scopes: ['openid', 'profile', 'email'],
+  scopes: [
+    'openid',
+    'profile',
+    'email',
+    `api://${process.env.NEXT_PUBLIC_AZURE_CLIENT_ID ?? ''}/user_impersonation`,
+  ],
 };
 
-// API token scopes — requested lazily when calling backend endpoints
+// API token scopes — used for silent/interactive token acquisition
 export const apiTokenRequest = {
   scopes: [`api://${process.env.NEXT_PUBLIC_AZURE_CLIENT_ID ?? ''}/.default`],
 };
@@ -67,15 +73,10 @@ export async function getAccessToken(): Promise<string | null> {
     return result.accessToken;
   } catch (err) {
     if (err instanceof InteractionRequiredAuthError) {
-      try {
-        const result = await msalInstance.acquireTokenPopup({
-          ...apiTokenRequest,
-          account,
-        });
-        return result.accessToken;
-      } catch {
-        return null;
-      }
+      // Popup is blocked when not triggered by a user click (e.g. from useQuery).
+      // Use redirect instead — silent since consent is already granted.
+      await msalInstance.acquireTokenRedirect({ ...apiTokenRequest, account });
+      return null; // unreachable; browser navigates away
     }
     console.error('Error acquiring token:', err);
     return null;
