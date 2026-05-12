@@ -406,6 +406,10 @@ Admin user       ──────►  remediation/execute (POST)   ──► D
 
                           implementations (GET)          ──► Implementation Log
                            └── reads implementations table
+
+                          config (GET, anonymous)        ──► Sidebar + Header branding
+                           ├── reads COMPANY_NAME env var
+                           └── fallback: ARM /tenants (MI token) → AAD tenant name
 ```
 
 ---
@@ -458,6 +462,7 @@ azureoptimize-pro/
 │   │   │   ├── getSavings.ts            # HTTP: savings tracker data
 │   │   │   ├── remediateResource.ts     # HTTP POST /api/remediation/execute — ARM automation (admin only)
 │   │   │   ├── getImplementations.ts    # HTTP GET /api/implementations — full remediation audit log
+│   │   │   ├── getConfig.ts             # HTTP GET /api/config — company branding (unauthenticated)
 │   │   │   └── health.ts                # HTTP GET /api/health — unauthenticated
 │   │   └── lib/
 │   │       ├── azure/
@@ -554,7 +559,8 @@ NEXT_PUBLIC_ADMIN_PRINCIPAL_ID=      # Entra Object ID of the admin user IN THIS
     "STORAGE_ACCOUNT_NAME": "",
     "STORAGE_ACCOUNT_KEY": "",
     "ADMIN_PRINCIPAL_ID": "",        // Entra Object ID of the admin user IN THIS TENANT (see note below)
-    "KEY_VAULT_URI": ""
+    "KEY_VAULT_URI": "",
+    "COMPANY_NAME": ""               // Optional: client name shown in sidebar/header (falls back to AAD tenant name)
   }
 }
 ```

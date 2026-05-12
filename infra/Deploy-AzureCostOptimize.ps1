@@ -36,6 +36,11 @@
 .PARAMETER GitHubRepo
     GitHub repo in owner/repo format. Default: TanishqBansal2645/AzureOptimize-Pro
 
+.PARAMETER CompanyName
+    Optional company/client name displayed in the sidebar and header of the dashboard.
+    If omitted, the Azure AD tenant display name is used automatically.
+    Can also be set or updated at any time with -Update -CompanyName "New Name".
+
 .PARAMETER Update
     Re-run infrastructure update only (preserves data, skips code deployment setup).
 
@@ -49,8 +54,11 @@
     # Fresh install with automatic GitHub setup
     .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -AdminPrincipalId "yyy" -AppClientId "zzz" -GitHubToken "ghp_..."
 
-    # Fresh install - manual GitHub secret setup
-    .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -AdminPrincipalId "yyy" -AppClientId "zzz"
+    # Fresh install with company branding
+    .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -AdminPrincipalId "yyy" -AppClientId "zzz" -CompanyName "Contoso Ltd"
+
+    # Update company name only
+    .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -Update -CompanyName "Contoso Ltd"
 #>
 
 param(
@@ -67,6 +75,7 @@ param(
     [string] $ResourceGroupName = "rg-azureoptimize",
     [string] $GitHubToken = "",
     [string] $GitHubRepo = "TanishqBansal2645/AzureOptimize-Pro",
+    [string] $CompanyName = "",
 
     [switch] $Update,
     [switch] $Remove,
@@ -385,6 +394,24 @@ else {
     Write-Success "Skipped (update mode)"
 }
 
+# ─── Company Branding (optional) ─────────────────────────────────────────────
+
+$trimmedCompanyName = $CompanyName.Trim()
+if ($trimmedCompanyName -and $script:functionAppName) {
+    Write-Host "  Setting company branding on Function App..." -ForegroundColor Gray
+    try {
+        az functionapp config appsettings set `
+            --name $script:functionAppName `
+            --resource-group $ResourceGroupName `
+            --settings "COMPANY_NAME=$trimmedCompanyName" `
+            --output none 2>$null
+        Write-Success "Company name configured: $trimmedCompanyName"
+    }
+    catch {
+        Write-Warn "Could not set COMPANY_NAME: $_"
+    }
+}
+
 # ─── Step 4: Configure GitHub Actions deployment ──────────────────────────────
 
 Write-Step 4 $totalSteps "Configuring GitHub Actions deployment"
@@ -538,6 +565,11 @@ if (-not $Update) {
 Write-Host "  2. Open the dashboard and sign in with your Microsoft account" -ForegroundColor White
 Write-Host "  3. First cost data appears within 4 hours (timer-triggered)" -ForegroundColor White
 Write-Host "  4. Future code updates deploy automatically on git push" -ForegroundColor White
+if (-not $trimmedCompanyName) {
+    Write-Host ""
+    Write-Host "  TIP: Set company branding anytime:" -ForegroundColor Gray
+    Write-Host "  .\Deploy-AzureCostOptimize.ps1 -TenantId $TenantId -Update -CompanyName 'Your Company'" -ForegroundColor Gray
+}
 Write-Host ""
 if (-not $Update) {
     Write-Host "  Record these values:" -ForegroundColor Yellow

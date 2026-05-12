@@ -85,6 +85,24 @@ Creates the Entra App Registration, grants admin consent, and prints the exact d
 
 **Total: ~12–15 minutes**
 
+#### Optional: Company branding
+
+Pass `-CompanyName` to display the client's organisation name in the sidebar and header. If omitted, the Azure AD tenant display name is used automatically.
+
+```powershell
+.\infra\Deploy-AzureCostOptimize.ps1 `
+  -TenantId          "<TENANT_ID>" `
+  -AdminPrincipalId  "<ADMIN_OBJECT_ID>" `
+  -AppClientId       "<APP_CLIENT_ID>" `
+  -CompanyName       "Contoso Ltd"
+```
+
+To update the name after deployment without re-deploying infrastructure:
+
+```powershell
+.\infra\Deploy-AzureCostOptimize.ps1 -TenantId "<TENANT_ID>" -Update -CompanyName "New Name"
+```
+
 #### Optional: Automate GitHub secrets
 
 Pass `-GitHubToken` (a GitHub PAT with Contents + Workflows + Secrets read/write) to have the script set the two GitHub Actions secrets and trigger the first deployment automatically:
@@ -161,11 +179,23 @@ Deletes the resource group, all resources, and all MI role assignments. Confirm 
 The sidebar and header display a company/tenant name beneath the AzureOptimize Pro product name.
 
 **Priority order:**
-1. `COMPANY_NAME` app setting on the Function App (takes precedence)
-2. Azure AD tenant display name (resolved automatically via Managed Identity)
-3. Falls back to showing only "AzureOptimize Pro" if neither is available
+1. `COMPANY_NAME` Function App setting (set via `-CompanyName` on the deploy script — takes precedence)
+2. Azure AD tenant display name (resolved automatically via Managed Identity — no config needed)
+3. Falls back to showing "AzureOptimize Pro" only if neither is available
 
-**To set a custom name:**
+**Set during deployment:**
+```powershell
+.\infra\Deploy-AzureCostOptimize.ps1 `
+  -TenantId "<TENANT_ID>" -AdminPrincipalId "<OID>" -AppClientId "<CID>" `
+  -CompanyName "Contoso Ltd"
+```
+
+**Update name only (no re-deploy):**
+```powershell
+.\infra\Deploy-AzureCostOptimize.ps1 -TenantId "<TENANT_ID>" -Update -CompanyName "Contoso Ltd"
+```
+
+**Or set directly via CLI:**
 ```powershell
 az functionapp config appsettings set `
   --name <functionapp-name> `
@@ -173,7 +203,7 @@ az functionapp config appsettings set `
   --settings "COMPANY_NAME=Contoso Ltd"
 ```
 
-To remove a custom name and fall back to tenant name, delete the setting:
+**Remove custom name (reverts to tenant name):**
 ```powershell
 az functionapp config appsettings delete `
   --name <functionapp-name> `
