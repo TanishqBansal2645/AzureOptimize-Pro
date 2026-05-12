@@ -1,7 +1,5 @@
 import { AdvisorManagementClient } from '@azure/arm-advisor';
-import { DefaultAzureCredential } from '@azure/identity';
-
-const credential = new DefaultAzureCredential();
+import { credential } from './credential';
 
 export interface AdvisorRecommendation {
   id: string;

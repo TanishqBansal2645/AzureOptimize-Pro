@@ -6,7 +6,7 @@ import {
   Timer,
 } from '@azure/functions';
 import { SubscriptionClient } from '@azure/arm-resources-subscriptions';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from '../lib/azure/credential';
 import {
   getCostRecommendations,
   parseReservationRecommendation,
@@ -22,7 +22,6 @@ import {
 export async function fetchAndStoreRecommendations(context: InvocationContext): Promise<void> {
   context.log('Fetching RI recommendations from Azure Advisor...');
 
-  const credential = new DefaultAzureCredential();
   const subClient = new SubscriptionClient(credential);
 
   const subscriptionIds: string[] = [];

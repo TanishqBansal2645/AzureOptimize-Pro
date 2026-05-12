@@ -6,7 +6,7 @@ import {
   Timer,
 } from '@azure/functions';
 import { SubscriptionClient } from '@azure/arm-resources-subscriptions';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from '../lib/azure/credential';
 import { getAllSubscriptionCosts } from '../lib/azure/costManagement';
 import { upsertCostData, getCostData } from '../lib/storage/tableClient';
 import {
@@ -19,7 +19,6 @@ import {
 export async function collectAndStoreCosts(context: InvocationContext): Promise<void> {
   context.log('Starting cost data collection...');
 
-  const credential = new DefaultAzureCredential();
   const subClient = new SubscriptionClient(credential);
 
   const subscriptions: Array<{ id: string; name: string }> = [];

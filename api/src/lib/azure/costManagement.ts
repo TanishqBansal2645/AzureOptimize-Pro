@@ -1,7 +1,5 @@
 import { CostManagementClient } from '@azure/arm-costmanagement';
-import { DefaultAzureCredential } from '@azure/identity';
-
-const credential = new DefaultAzureCredential();
+import { credential } from './credential';
 
 export interface DailySpend {
   date: string;

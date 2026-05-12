@@ -7,7 +7,7 @@ import {
 } from '@azure/functions';
 import { SubscriptionClient } from '@azure/arm-resources-subscriptions';
 import { ComputeManagementClient } from '@azure/arm-compute';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from '../lib/azure/credential';
 import { findAllVMs } from '../lib/azure/resourceGraph';
 import { getVMMetrics } from '../lib/azure/monitorMetrics';
 import { getVMPrice } from '../lib/azure/retailPrices';
@@ -24,7 +24,7 @@ import {
   jsonResponse,
 } from '../lib/auth/validateUser';
 
-const credential = new DefaultAzureCredential();
+// credential imported from shared module
 
 // VM family downgrade mapping: larger → smaller equivalent SKU
 const VM_FAMILY_DOWNGRADES: Record<string, string[]> = {

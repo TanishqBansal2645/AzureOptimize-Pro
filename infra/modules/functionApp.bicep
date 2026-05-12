@@ -61,6 +61,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
   }
   properties: {
     serverFarmId: appServicePlan.id
+    keyVaultReferenceIdentity: managedIdentityId
     siteConfig: {
       appSettings: [
         {

@@ -6,7 +6,7 @@ import {
   Timer,
 } from '@azure/functions';
 import { SubscriptionClient } from '@azure/arm-resources-subscriptions';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from '../lib/azure/credential';
 import {
   findPremiumDisks,
   findStorageAccounts,
@@ -32,7 +32,6 @@ import {
 export async function scanAndStoreStorage(context: InvocationContext): Promise<void> {
   context.log('Starting storage optimization scan...');
 
-  const credential = new DefaultAzureCredential();
   const subClient = new SubscriptionClient(credential);
   const subscriptionIds: string[] = [];
   try {

@@ -7,7 +7,7 @@ import {
 } from '@azure/functions';
 import { ConsumptionManagementClient } from '@azure/arm-consumption';
 import { SubscriptionClient } from '@azure/arm-resources-subscriptions';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from '../lib/azure/credential';
 import {
   getBudgets,
   upsertBudget,
@@ -22,7 +22,7 @@ import {
   jsonResponse,
 } from '../lib/auth/validateUser';
 
-const credential = new DefaultAzureCredential();
+// credential imported from shared module
 
 async function syncBudgetsFromAzure(
   subscriptionIds: string[],

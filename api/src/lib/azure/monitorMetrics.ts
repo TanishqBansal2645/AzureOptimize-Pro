@@ -1,8 +1,8 @@
 import { MetricsQueryClient, TimeSeriesElement } from '@azure/monitor-query';
 import type { Metric } from '@azure/monitor-query';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from './credential';
 
-const client = new MetricsQueryClient(new DefaultAzureCredential());
+const client = new MetricsQueryClient(credential);
 
 export interface VMMetrics {
   vmResourceId: string;

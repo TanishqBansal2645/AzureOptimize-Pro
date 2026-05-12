@@ -6,7 +6,7 @@ import {
   Timer,
 } from '@azure/functions';
 import { SubscriptionClient } from '@azure/arm-resources-subscriptions';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from '../lib/azure/credential';
 import {
   findAzureSQLDatabases,
   findCosmosDBAccounts,
@@ -28,7 +28,6 @@ import {
 export async function scanAndStoreDatabases(context: InvocationContext): Promise<void> {
   context.log('Starting database optimization scan...');
 
-  const credential = new DefaultAzureCredential();
   const subClient = new SubscriptionClient(credential);
   const subscriptionIds: string[] = [];
   try {

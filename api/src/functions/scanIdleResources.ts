@@ -6,7 +6,7 @@ import {
   Timer,
 } from '@azure/functions';
 import { SubscriptionClient } from '@azure/arm-resources-subscriptions';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from '../lib/azure/credential';
 import {
   findUnattachedDisks,
   findOrphanedPublicIPs,
@@ -35,7 +35,6 @@ function createRowKey(resourceId: string): string {
 }
 
 async function getSubscriptionIds(): Promise<string[]> {
-  const credential = new DefaultAzureCredential();
   const subClient = new SubscriptionClient(credential);
   const ids: string[] = [];
   try {

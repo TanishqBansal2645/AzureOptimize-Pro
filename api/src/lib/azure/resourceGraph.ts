@@ -1,7 +1,7 @@
 import { ResourceGraphClient } from '@azure/arm-resourcegraph';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from './credential';
 
-const client = new ResourceGraphClient(new DefaultAzureCredential());
+const client = new ResourceGraphClient(credential);
 
 interface GraphResult {
   data?: unknown[];

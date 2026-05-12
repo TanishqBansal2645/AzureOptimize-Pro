@@ -6,7 +6,7 @@ import {
   BlobSASPermissions,
   SASProtocol,
 } from '@azure/storage-blob';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from '../azure/credential';
 
 const accountName = process.env['STORAGE_ACCOUNT_NAME'] ?? '';
 const connectionString = process.env['STORAGE_CONNECTION_STRING'] ?? '';
@@ -17,7 +17,7 @@ function getBlobServiceClient(): BlobServiceClient {
     return BlobServiceClient.fromConnectionString(connectionString);
   }
   const url = `https://${accountName}.blob.core.windows.net`;
-  return new BlobServiceClient(url, new DefaultAzureCredential());
+  return new BlobServiceClient(url, credential);
 }
 
 async function ensureContainer(containerName: string): Promise<ContainerClient> {

@@ -3,7 +3,7 @@ import {
   TableEntity,
   odata,
 } from '@azure/data-tables';
-import { DefaultAzureCredential } from '@azure/identity';
+import { credential } from '../azure/credential';
 
 const accountName = process.env['STORAGE_ACCOUNT_NAME'] ?? '';
 const connectionString = process.env['STORAGE_CONNECTION_STRING'] ?? '';
@@ -13,7 +13,7 @@ function getTableClient(tableName: string): TableClient {
     return TableClient.fromConnectionString(connectionString, tableName);
   }
   const url = `https://${accountName}.table.core.windows.net`;
-  return new TableClient(url, tableName, new DefaultAzureCredential());
+  return new TableClient(url, tableName, credential);
 }
 
 async function ensureTable(tableName: string): Promise<TableClient> {
