@@ -147,19 +147,41 @@ az ad app update `
 
 ---
 
-## Updating Code
+## Updating an Existing Deployment
 
-Code updates happen automatically when you push to `main` on GitHub. GitHub Actions handles the build and deploy for both API and frontend.
+### Code updates (automatic)
+Every push to `main` triggers GitHub Actions — the API and frontend redeploy in ~3 minutes. No script needed.
 
-To update infrastructure only:
+### Infrastructure update (`-Update`)
+
+Re-applies role assignments, verifies the deployment is healthy:
 
 ```powershell
 .\infra\Deploy-AzureCostOptimize.ps1 -TenantId "<TENANT_ID>" -Update
 ```
 
+**What it does:**
+| Step | Action |
+|------|--------|
+| 1 | Login |
+| 2 | Read existing resource names |
+| 3 | Re-apply all 4 RBAC roles on every subscription (idempotent) |
+| 4 | Skip GitHub secrets (unchanged) |
+| 5 | API health check |
+| 6 | Smoke tests |
+
+Use `-Update` after:
+- Pulling new code that includes Bicep or RBAC changes (re-run roles)
+- A role assignment was accidentally removed
+- You want to verify the API is healthy without a full redeploy
+
+> **Bicep infrastructure changes** (e.g. new storage settings, new role added to `storage.bicep`): re-run the full deploy command with the same params — Bicep is idempotent and won't delete existing data.
+
 ---
 
 ## Removing the Tool
+
+> Export an Excel report first if the client wants their savings history.
 
 ```powershell
 .\infra\Deploy-AzureCostOptimize.ps1 `
@@ -168,9 +190,9 @@ To update infrastructure only:
   -Remove
 ```
 
-Deletes the resource group, all resources, and all MI role assignments. Confirm with `yes`.
+**What it does:** deletes all MI role assignments across all subscriptions, then deletes the resource group and all resources inside it. Prompts `Type 'yes' to confirm` before proceeding. The Entra App Registration is **not** deleted — remove it manually from Entra ID if you want a complete cleanup.
 
-> Export an Excel report first if the client wants their savings history.
+> Deletion of the resource group is async (`--no-wait`). Check completion in the Azure Portal under Resource Groups.
 
 ---
 

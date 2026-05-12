@@ -503,6 +503,14 @@ irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/i
 
 **Code updates are automatic:** push to `main` on GitHub and GitHub Actions deploys both the API and frontend within ~3 minutes.
 
+**Three lifecycle operations:**
+
+| Operation | Command | What it does |
+|-----------|---------|--------------|
+| **Deploy** | `.\infra\Setup-Entra.ps1` then `.\infra\Deploy-AzureCostOptimize.ps1 ...` | Full fresh install — provisions all Azure resources, assigns RBAC roles, deploys code |
+| **Update** | `.\infra\Deploy-AzureCostOptimize.ps1 -TenantId "..." -Update` | Re-applies role assignments, optionally updates branding, runs health check. Use after pulling infra changes or if a role was removed |
+| **Remove** | `.\infra\Deploy-AzureCostOptimize.ps1 -TenantId "..." -Remove` | Deletes all Azure resources and role assignments. Prompts for confirmation. Entra App Registration is left in place (delete manually if needed) |
+
 ---
 
 ## Development Setup
