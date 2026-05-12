@@ -165,7 +165,7 @@ if ($Remove) {
     az login --tenant $TenantId --output none
 
     Write-Host "Removing role assignments for Managed Identity..." -ForegroundColor Cyan
-    $subscriptions = az account list --query "[].id" -o tsv
+    $subscriptions = az account list --query "[?tenantId=='$TenantId'].id" -o tsv
     foreach ($subId in $subscriptions) {
         $mi = az identity list --resource-group $ResourceGroupName --subscription $subId --query "[?starts_with(name, 'mi-azureoptimize')].principalId" -o tsv 2>$null
         if ($mi) {
@@ -281,7 +281,7 @@ if (-not $Update) {
 
     Write-Step 3 $totalSteps "Assigning Reader roles on all subscriptions"
     try {
-        $subscriptions = az account list --query "[?state=='Enabled'].id" -o tsv
+        $subscriptions = az account list --query "[?state=='Enabled' && tenantId=='$TenantId'].id" -o tsv
         $assignedCount = 0
         foreach ($subId in ($subscriptions -split "`n" | Where-Object { $_ -and $_.Trim() })) {
             $subId = $subId.Trim()

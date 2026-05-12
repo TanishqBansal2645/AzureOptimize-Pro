@@ -1,87 +1,65 @@
 # AzureOptimize Pro — Deployment Guide
 
-> **Time required:** ~20 minutes (fully automated)  
-> **Prerequisites:** Azure CLI, Node.js 20+, PowerShell 7+, Owner role on the target tenant
+> **Time required:** ~15 minutes  
+> **Prerequisites:** Azure Cloud Shell (or local: Azure CLI + PowerShell 7+)  
+> **Required role:** Owner on the target Azure subscription
 
 ---
 
 ## Overview
 
-The entire deployment is two PowerShell commands:
+Deployment is two PowerShell commands run from the client's Azure tenant:
 
 ```powershell
-# Step 1: Set up Entra App Registration (once per tenant)
+# Step 1 — Create the Entra App Registration (once per tenant)
 .\infra\Setup-Entra.ps1 -TenantId "<TENANT_ID>"
 
-# Step 2: Deploy everything (infra + API + frontend + tests)
+# Step 2 — Provision all Azure infrastructure
 .\infra\Deploy-AzureCostOptimize.ps1 `
   -TenantId         "<TENANT_ID>" `
-  -AdminPrincipalId "<YOUR_OBJECT_ID>" `
+  -AdminPrincipalId "<ADMIN_OBJECT_ID>" `
   -AppClientId      "<APP_CLIENT_ID>"
 ```
 
-`Setup-Entra.ps1` outputs the exact command for Step 2 — just copy and paste it.
+Step 1 outputs the exact Step 2 command — just copy and paste.
+
+Code (API + frontend) deploys automatically via GitHub Actions on every push to `main`.  
+The deploy script handles only Azure infrastructure: storage, function app, key vault, managed identity, and RBAC.
 
 ---
 
-## Prerequisites
+## One-Command Install (Cloud Shell)
 
-Install these tools before running anything:
+The fastest path — run this directly in the client's Azure Cloud Shell:
 
 ```powershell
-# Verify versions
-az --version          # 2.50+
-node --version        # v20.x
-npm --version         # 10.x
-pwsh --version        # 7+  (or powershell for Windows PS 5.1)
+irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
 ```
 
-Install Azure CLI if missing:
-```powershell
-winget install Microsoft.AzureCLI
-```
-
-Install Node.js 20 if missing:
-```powershell
-winget install OpenJS.NodeJS.LTS
-```
+This clones the repo, runs Setup-Entra, and runs Deploy automatically. No tools to install.
 
 ---
 
-## Step 1 — Entra App Setup (run once per client tenant)
+## Manual Install
+
+### Prerequisites
+
+```powershell
+az --version     # 2.50+
+node --version   # v20.x
+pwsh --version   # 7+  (Windows PowerShell 5.1 also works)
+```
+
+### Step 1 — Entra App Setup
 
 ```powershell
 cd "Cost Optimization Tool"
 .\infra\Setup-Entra.ps1 -TenantId "<CLIENT_TENANT_ID>"
 ```
 
-This script:
-- Logs you in to the client's Azure tenant
-- Creates (or reuses) an Entra App Registration named "AzureOptimize Pro"
-- Grants admin consent automatically
-- Configures the API scope for token audience validation
-- **Outputs the exact deploy command** with all values pre-filled
+Creates the Entra App Registration, grants admin consent, and prints the exact deploy command.
 
-Example output:
-```
-  App Client ID   : xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-  Admin Object ID : yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
-  Tenant ID       : zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz
-
-  Run the deployment now:
-    .\Deploy-AzureCostOptimize.ps1 `
-      -TenantId          "zzzz..." `
-      -AdminPrincipalId  "yyyy..." `
-      -AppClientId       "xxxx..." `
-      -Location          "eastus" `
-      -ResourceGroupName "rg-azureoptimize"
-```
-
----
-
-## Step 2 — Full Deployment
-
-Copy the command from Step 1 output and run it:
+### Step 2 — Infrastructure Deployment
 
 ```powershell
 .\infra\Deploy-AzureCostOptimize.ps1 `
@@ -92,95 +70,72 @@ Copy the command from Step 1 output and run it:
   -ResourceGroupName "rg-azureoptimize"
 ```
 
-### What happens (fully automated):
+**What it provisions:**
 
 | Step | Action | Time |
 |------|--------|------|
-| Pre-flight | Tool checks + project structure validation | <5s |
 | 1 | Login to Azure | <30s |
-| 2 | Provision infrastructure (Storage, Function App, Static Web App, Key Vault, Managed Identity) | 5-8 min |
-| 3 | Assign Reader + Cost Management Reader + Monitoring Reader roles on all subscriptions | <1 min |
-| 4 | Build TypeScript API + zip-deploy to Function App | 2-3 min |
-| 5 | Build Next.js frontend + deploy to Static Web App | 2-3 min |
-| 6 | Wait for Function App cold start | 30s |
-| 7 | API health check (retries up to 5×) | <1 min |
-| 8 | Automated smoke tests (auth, CORS, endpoints) | <1 min |
+| 2 | Bicep: Storage, Function App, Static Web App, Key Vault, Managed Identity | 5–8 min |
+| 3 | RBAC: Reader + Cost Management Reader + Monitoring Reader on all tenant subscriptions | <1 min |
+| 4 | Configure GitHub Actions secrets (if `-GitHubToken` provided) and trigger first deploy | 4 min |
+| 5 | API health check (retries 8×) | <2 min |
+| 6 | Smoke tests | <1 min |
 
-**Total: ~15-20 minutes**
+**Total: ~12–15 minutes**
 
-### Expected final output:
-```
-  Dashboard URL  : https://wonderful-stone-abc123.azurestaticapps.net
-  API URL        : https://func-azureoptimize-abc123.azurewebsites.net/api
-  Resource Group : rg-azureoptimize
-  Key Vault URI  : https://kv-azopt-abc123.vault.azure.net/
-```
+#### Optional: Automate GitHub secrets
 
----
-
-## Step 3 — Update Entra Redirect URI
-
-After deployment, update the Entra App with the real dashboard URL:
-
-```powershell
-.\infra\Setup-Entra.ps1 `
-  -TenantId      "<TENANT_ID>" `
-  -DashboardUrl  "https://wonderful-stone-abc123.azurestaticapps.net" `
-  -UpdateRedirectUri `
-  -AppClientId   "<APP_CLIENT_ID>"
-```
-
-This adds `https://wonderful-stone-abc123.azurestaticapps.net/.auth/login/aad/callback`
-as a valid redirect URI so users can log in from the production URL.
-
----
-
-## Step 4 — First Login
-
-1. Open the dashboard URL in a browser
-2. Click **Sign in with Microsoft**
-3. Log in with the admin account (the one whose Object ID you used)
-4. You land on the Cost Dashboard
-
-**First data:** Cost data and optimization scans run on a timer:
-- Cost data: every 4 hours (first run after ~4h, or trigger manually)
-- Idle resource scan: offset by 30 min from costs
-- VM rightsizing: daily at 8am UTC
-- AHB / Storage / Database scans: daily, staggered
-
-> No manual trigger needed — data populates automatically on schedule.
-
----
-
-## Updating the Tool
+Pass `-GitHubToken` (a GitHub PAT with Contents + Workflows + Secrets read/write) to have the script set the two GitHub Actions secrets and trigger the first deployment automatically:
 
 ```powershell
 .\infra\Deploy-AzureCostOptimize.ps1 `
   -TenantId          "<TENANT_ID>" `
-  -ResourceGroupName "rg-azureoptimize" `
-  -Update
+  -AdminPrincipalId  "<ADMIN_OBJECT_ID>" `
+  -AppClientId       "<APP_CLIENT_ID>" `
+  -GitHubToken       "ghp_..."
 ```
 
-`-Update` redeploys the API and frontend code without touching infrastructure or data.
+Without `-GitHubToken`, the script prints the two secrets to add manually at  
+`https://github.com/TanishqBansal2645/AzureOptimize-Pro/settings/secrets/actions`.
+
+### Step 3 — Update Entra Redirect URI
+
+After the first deployment, add the production URL to the Entra App:
+
+```powershell
+.\infra\Setup-Entra.ps1 `
+  -TenantId         "<TENANT_ID>" `
+  -AppClientId      "<APP_CLIENT_ID>" `
+  -DashboardUrl     "<STATIC_WEB_APP_URL>" `
+  -UpdateRedirectUri
+```
+
+Or via Azure CLI:
+
+```powershell
+az ad app update `
+  --id "<APP_CLIENT_ID>" `
+  --web-redirect-uris "http://localhost:3000" "<STATIC_WEB_APP_URL>"
+```
+
+### Step 4 — First Login
+
+1. Open the Static Web App URL in a browser
+2. Click **Sign in with Microsoft**
+3. Log in with the admin account (matching `AdminPrincipalId`)
+4. Cost data populates on a timer — first results within 4 hours
 
 ---
 
-## Running Tests Independently
+## Updating Code
+
+Code updates happen automatically when you push to `main` on GitHub. GitHub Actions handles the build and deploy for both API and frontend.
+
+To update infrastructure only:
 
 ```powershell
-.\infra\Test-Deploy.ps1 `
-  -ApiUrl  "https://func-azureoptimize-abc123.azurewebsites.net/api" `
-  -TenantId "<TENANT_ID>" `
-  -Verbose
+.\infra\Deploy-AzureCostOptimize.ps1 -TenantId "<TENANT_ID>" -Update
 ```
-
-Tests cover:
-- Health endpoint + environment configuration
-- Authentication enforcement (all endpoints reject unauthenticated requests)
-- Admin-only endpoint enforcement
-- Input validation (400 responses for bad requests)
-- Response time benchmarks
-- CORS header presence
 
 ---
 
@@ -193,46 +148,46 @@ Tests cover:
   -Remove
 ```
 
-Deletes the resource group and all role assignments. Confirm with `yes` at the prompt.
+Deletes the resource group, all resources, and all MI role assignments. Confirm with `yes`.
 
-> Export an Excel report first if the client wants to keep their savings history.
+> Export an Excel report first if the client wants their savings history.
+
+---
+
+## GitHub Actions Secrets Required
+
+| Secret | What it is | How to get it |
+|--------|-----------|---------------|
+| `AZURE_FUNCTIONAPP_PUBLISH_PROFILE` | Function App publish profile (XML) | `az functionapp deployment list-publishing-profiles --name <app> --resource-group <rg> --xml` |
+| `AZURE_STATIC_WEB_APPS_API_TOKEN` | Static Web App deploy token | `az staticwebapp secrets list --name <swa> --resource-group <rg> --query "properties.apiKey" -o tsv` |
+
+Both are set automatically when `-GitHubToken` is passed to the deploy script.
 
 ---
 
 ## Troubleshooting
 
 ### "Insufficient privileges to complete the operation"
-You need Owner or User Access Administrator at the subscription level to assign roles.
+You need Owner or User Access Administrator on the subscription to assign RBAC roles.
 
 ```powershell
 az role assignment list --assignee $(az ad signed-in-user show --query id -o tsv) --output table
 ```
 
-### "TypeScript compilation failed"
-The API TypeScript build failed. The error is shown above the failure message. Common cause:
-run `cd api && npm install` then `npm run build` to see the exact error.
-
-### Health check times out
-The Function App on Consumption plan takes 30-60 seconds on cold start. The deploy
-script retries 5 times. If it still fails, check the Function App in Azure Portal →
-Monitor → Live Metrics.
-
-### "SWA CLI not found"
-The deploy script installs it automatically via `npm install -g @azure/static-web-apps-cli`.
-If your network blocks npm global installs, install manually:
+### Health check times out after deployment
+Function App on Consumption plan takes 30–60 seconds on cold start. The deploy script retries 8 times. If still failing, check:
 ```powershell
-npm install -g @azure/static-web-apps-cli
+az functionapp log tail --name <app-name> --resource-group rg-azureoptimize
 ```
 
-### Dashboard loads but shows "No data"
-Cost data collects on a 4-hour timer. First run happens at the next scheduled interval.
-Wait up to 4 hours, or check the Function App logs for timer trigger errors.
+### "Dashboard loads but shows No data"
+Cost data collects on 4-hour timers. Wait up to 4 hours, or trigger a manual refresh via the dashboard's Refresh button.
 
-### Role assignment for Cost Management Reader fails
-Some tenants require Management Group scope for Cost Management roles:
+### Cost Management Reader role assignment fails
+Some tenants require Management Group scope:
 ```powershell
 $mgmtGroupId = az account management-group list --query "[0].name" -o tsv
-$miOid = az identity show --name mi-azureoptimize-* --resource-group rg-azureoptimize --query principalId -o tsv
+$miOid = az identity list --resource-group rg-azureoptimize --query "[0].principalId" -o tsv
 az role assignment create `
   --assignee $miOid `
   --role "Cost Management Reader" `
@@ -241,14 +196,12 @@ az role assignment create `
 
 ---
 
-## Quick Reference — Values to Record
-
-After deployment, record these values for the client:
+## Quick Reference — Values to Record After Deployment
 
 | Value | Where to find |
-|---|---|
-| Dashboard URL | Deploy script output |
-| API URL | Deploy script output |
+|-------|---------------|
+| Dashboard URL | Deploy script output / `az staticwebapp list -g rg-azureoptimize --query "[0].defaultHostname" -o tsv` |
+| API URL | `https://<functionapp-name>.azurewebsites.net/api` |
 | Resource Group | `rg-azureoptimize` (default) |
 | Tenant ID | Passed to deploy script |
 | App Client ID | Output of Setup-Entra.ps1 |

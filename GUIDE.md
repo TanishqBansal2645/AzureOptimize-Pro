@@ -1,7 +1,7 @@
 # AzureOptimize Pro — Project Guide
 
 > **Version:** 1.0  
-> **Last Updated:** 2026-05-11  
+> **Last Updated:** 2026-05-12  
 > **Price:** $1,000 one-time per client tenant  
 > **Built by:** Tech Plus Talent
 
@@ -75,7 +75,8 @@ The client pays this from their own Azure subscription. It is effectively free.
 | Authentication | Azure Entra ID (MSAL) — SSO with client's Microsoft accounts |
 | Azure SDKs | @azure/arm-costmanagement, @azure/arm-advisor, @azure/arm-resourcegraph, @azure/monitor-query, @azure/arm-resources, @azure/identity |
 | Secrets | Azure Key Vault |
-| Deployment | Bicep template + PowerShell installer |
+| Infrastructure | Bicep template + PowerShell installer |
+| Code Deployment | GitHub Actions (auto-deploy on push to `main`) |
 
 ---
 
@@ -363,15 +364,15 @@ azureoptimize-pro/
 │   │   │   ├── scanIdleResources.ts     # Timer: every 4h
 │   │   │   ├── analyzeRightsizing.ts    # Timer: daily
 │   │   │   ├── fetchRecommendations.ts  # Timer: every 4h
-│   │   │   ├── scanAHB.ts              # Timer: daily
-│   │   │   ├── scanStorage.ts          # Timer: daily
-│   │   │   ├── scanDatabases.ts        # Timer: daily
-│   │   │   ├── generateExcel.ts        # HTTP: on-demand
-│   │   │   ├── getBudgets.ts           # HTTP
-│   │   │   ├── saveBudget.ts           # HTTP
-│   │   │   ├── getRecommendations.ts   # HTTP
-│   │   │   ├── markImplemented.ts      # HTTP
-│   │   │   └── getSavings.ts           # HTTP
+│   │   │   ├── scanAHB.ts               # Timer: daily
+│   │   │   ├── scanStorage.ts           # Timer: daily
+│   │   │   ├── scanDatabases.ts         # Timer: daily
+│   │   │   ├── triggerRefresh.ts        # HTTP POST /api/refresh — runs all 8 scanners in parallel
+│   │   │   ├── generateExcel.ts         # HTTP: on-demand Excel export
+│   │   │   ├── getBudgets.ts            # HTTP: budget list + sync
+│   │   │   ├── markImplemented.ts       # HTTP: mark recommendation implemented
+│   │   │   ├── getSavings.ts            # HTTP: savings tracker data
+│   │   │   └── health.ts                # HTTP GET /api/health — unauthenticated
 │   │   └── lib/
 │   │       ├── azure/
 │   │       │   ├── costManagement.ts
@@ -379,8 +380,11 @@ azureoptimize-pro/
 │   │       │   ├── monitorMetrics.ts
 │   │       │   ├── advisor.ts
 │   │       │   └── retailPrices.ts
+│   │       ├── auth/
+│   │       │   └── validateUser.ts
 │   │       └── storage/
-│   │           └── tableClient.ts
+│   │           ├── tableClient.ts
+│   │           └── blobClient.ts
 │   └── package.json
 │
 └── infra/                       # Bicep templates
@@ -395,6 +399,19 @@ azureoptimize-pro/
 
 ---
 
+## Deployment
+
+See [SETUP.md](SETUP.md) for the full deployment guide.
+
+**TL;DR — from Azure Cloud Shell:**
+```powershell
+irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
+```
+
+**Code updates are automatic:** push to `main` on GitHub and GitHub Actions deploys both the API and frontend within ~3 minutes.
+
+---
+
 ## Development Setup
 
 ### Prerequisites
@@ -406,7 +423,7 @@ azureoptimize-pro/
 ### Local Development
 ```bash
 # 1. Clone repo
-git clone <repo>
+git clone https://github.com/TanishqBansal2645/AzureOptimize-Pro.git
 
 # 2. Install dependencies
 cd frontend && npm install
