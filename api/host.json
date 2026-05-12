@@ -15,5 +15,9 @@
   "functionTimeout": "00:10:00",
   "http": {
     "routePrefix": "api"
+  },
+  "cors": {
+    "allowedOrigins": ["*"],
+    "supportCredentials": false
   }
 }

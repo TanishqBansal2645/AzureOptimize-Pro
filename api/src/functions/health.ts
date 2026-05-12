@@ -1,4 +1,5 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
+import { CORS_HEADERS } from '../lib/auth/validateUser';
 
 async function healthHandler(
   _request: HttpRequest,
@@ -7,7 +8,7 @@ async function healthHandler(
   context.log('Health check requested');
   return {
     status: 200,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     body: JSON.stringify({
       status: 'healthy',
       timestamp: new Date().toISOString(),

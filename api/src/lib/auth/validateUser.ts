@@ -2,6 +2,13 @@ import jwt from 'jsonwebtoken';
 import jwksRsa from 'jwks-rsa';
 import { HttpRequest } from '@azure/functions';
 
+export const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+  'Access-Control-Max-Age': '86400',
+};
+
 export interface UserClaims {
   oid: string;
   name: string;
@@ -56,7 +63,8 @@ function verifyToken(token: string): Promise<JwtPayload> {
           .catch((err) => callback(err as Error));
       },
       {
-        audience: `api://${clientId}`,
+        // Accept both v2 (api://CLIENT_ID) and v1 (CLIENT_ID) token formats
+        audience: [`api://${clientId}`, clientId],
         issuer: [
           `https://login.microsoftonline.com/${tenantId}/v2.0`,
           `https://sts.windows.net/${tenantId}/`,
@@ -65,6 +73,7 @@ function verifyToken(token: string): Promise<JwtPayload> {
       },
       (err, decoded) => {
         if (err) {
+          console.error('[Auth] JWT verification failed:', err.name, '-', err.message);
           reject(err);
         } else {
           resolve(decoded as JwtPayload);
@@ -77,6 +86,7 @@ function verifyToken(token: string): Promise<JwtPayload> {
 export async function validateUser(request: HttpRequest): Promise<UserClaims> {
   const authHeader = request.headers.get('authorization') ?? '';
   if (!authHeader.startsWith('Bearer ')) {
+    console.error('[Auth] Missing or invalid Authorization header');
     throw new Error('Missing or invalid Authorization header');
   }
 
@@ -119,7 +129,7 @@ export async function requireAdmin(request: HttpRequest): Promise<UserClaims> {
 export function unauthorizedResponse(message: string = 'Unauthorized') {
   return {
     status: 401,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     body: JSON.stringify({ error: message }),
   };
 }
@@ -127,7 +137,7 @@ export function unauthorizedResponse(message: string = 'Unauthorized') {
 export function forbiddenResponse(message: string = 'Forbidden') {
   return {
     status: 403,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     body: JSON.stringify({ error: message }),
   };
 }
@@ -135,7 +145,7 @@ export function forbiddenResponse(message: string = 'Forbidden') {
 export function errorResponse(message: string, status: number = 500) {
   return {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     body: JSON.stringify({ error: message }),
   };
 }
@@ -143,7 +153,7 @@ export function errorResponse(message: string, status: number = 500) {
 export function jsonResponse(data: unknown, status: number = 200) {
   return {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     body: JSON.stringify(data),
   };
 }
