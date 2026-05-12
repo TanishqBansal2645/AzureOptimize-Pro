@@ -541,7 +541,50 @@ cd frontend && npm run dev
 
 ## Environment Variables
 
-### Frontend (`frontend/.env.local`)
+### Production — Complete Reference
+
+All variables are initialized (at minimum empty) by the Bicep deployment. You never need to manually add missing settings after a fresh deploy — only update values.
+
+#### Function App settings
+
+| Variable | Auto-set by Bicep | Fallback | Notes |
+|----------|:-----------------:|---------|-------|
+| `AzureWebJobsStorage` | ✅ | — | Storage connection string (plain text for cold-start bootstrap) |
+| `WEBSITE_CONTENTAZUREFILECONNECTIONSTRING` | ✅ | — | Required by Consumption plan |
+| `WEBSITE_CONTENTSHARE` | ✅ | — | File share name = function app name |
+| `FUNCTIONS_EXTENSION_VERSION` | ✅ | — | Pinned to `~4` |
+| `FUNCTIONS_WORKER_RUNTIME` | ✅ | — | `node` |
+| `WEBSITE_NODE_DEFAULT_VERSION` | ✅ | — | `~20` |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | ✅ | — | Wired to the App Insights resource |
+| `AZURE_TENANT_ID` | ✅ | — | Passed from deploy script |
+| `AZURE_CLIENT_ID` | ✅ | — | Entra app registration client ID |
+| `STORAGE_ACCOUNT_NAME` | ✅ | — | Used for Table/Blob operations |
+| `STORAGE_CONNECTION_STRING` | ✅ (KV ref) | — | Resolved from Key Vault at runtime |
+| `ADMIN_PRINCIPAL_ID` | ✅ | — | Entra OID of the admin account |
+| `KEY_VAULT_URI` | ✅ | — | Convenience reference; not read directly in code |
+| `AZURE_CLIENT_ID_MI` | ✅ | — | Managed Identity client ID for `DefaultAzureCredential` |
+| `CORS_ORIGINS` | ✅ (`*`) | — | Initialized; CORS is handled in code, not read from this var |
+| `WEBSITE_RUN_FROM_PACKAGE` | ✅ (`1`) | — | Required for zip-deploy |
+| `COMPANY_NAME` | ✅ (empty) | AAD tenant display name | Client branding shown in sidebar + header. Pass `-CompanyName` at deploy time or update with `-Update -CompanyName`. |
+
+#### Static Web App settings
+
+| Variable | Auto-set by Bicep | Fallback | Notes |
+|----------|:-----------------:|---------|-------|
+| `NEXT_PUBLIC_AZURE_TENANT_ID` | ✅ | — | Build-time; wired from deploy params |
+| `NEXT_PUBLIC_AZURE_CLIENT_ID` | ✅ | — | Build-time |
+| `NEXT_PUBLIC_AZURE_REDIRECT_URI` | ✅ | — | Set to the SWA hostname on deploy |
+| `NEXT_PUBLIC_API_BASE_URL` | ✅ | — | Set to `<functionAppUrl>/api` |
+| `NEXT_PUBLIC_ADMIN_PRINCIPAL_ID` | ✅ | — | Must match Function App `ADMIN_PRINCIPAL_ID` |
+| `NEXT_PUBLIC_DEVELOPER_NAME` | ✅ (empty) | `"Tanishq Bansal"` | Build-time. White-label the login page footer. Pass `-DeveloperName` at deploy time. Changes take effect on next GitHub Actions run. |
+
+> **Build-time vs. runtime:** `NEXT_PUBLIC_*` variables are baked into the Next.js bundle at build time. Changing them via `az staticwebapp appsettings set` only takes effect after the next GitHub Actions deployment.
+
+---
+
+### Local Development
+
+#### Frontend (`frontend/.env.local`)
 ```
 NEXT_PUBLIC_AZURE_CLIENT_ID=         # Entra app registration client ID
 NEXT_PUBLIC_AZURE_TENANT_ID=         # Azure tenant ID
@@ -551,7 +594,7 @@ NEXT_PUBLIC_DEVELOPER_NAME=          # Optional: white-label developer name (fal
 NEXT_PUBLIC_ADMIN_PRINCIPAL_ID=      # Entra Object ID of the admin user IN THIS TENANT (see note below)
 ```
 
-### API (`api/local.settings.json`)
+#### API (`api/local.settings.json`)
 ```json
 {
   "Values": {

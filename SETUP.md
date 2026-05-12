@@ -85,23 +85,23 @@ Creates the Entra App Registration, grants admin consent, and prints the exact d
 
 **Total: ~12–15 minutes**
 
-#### Optional: Company branding
+#### Optional: Branding
 
-Pass `-CompanyName` to display the client's organisation name in the sidebar and header. If omitted, the Azure AD tenant display name is used automatically.
+Both branding fields are always initialised (empty by default, with fallbacks) — pass them to set values at deploy time:
 
 ```powershell
 .\infra\Deploy-AzureCostOptimize.ps1 `
   -TenantId          "<TENANT_ID>" `
   -AdminPrincipalId  "<ADMIN_OBJECT_ID>" `
   -AppClientId       "<APP_CLIENT_ID>" `
-  -CompanyName       "Contoso Ltd"
+  -CompanyName       "Contoso Ltd" `
+  -DeveloperName     "Tanishq Bansal"
 ```
 
-To update the name after deployment without re-deploying infrastructure:
-
-```powershell
-.\infra\Deploy-AzureCostOptimize.ps1 -TenantId "<TENANT_ID>" -Update -CompanyName "New Name"
-```
+| Param | Sets | Shown on | Fallback if empty |
+|-------|------|---------|------------------|
+| `-CompanyName` | `COMPANY_NAME` (Function App) | Sidebar + header | Azure AD tenant name |
+| `-DeveloperName` | `NEXT_PUBLIC_DEVELOPER_NAME` (Static Web App) | Login page footer | `"Tanishq Bansal"` |
 
 #### Optional: Automate GitHub secrets
 
@@ -174,41 +174,45 @@ Deletes the resource group, all resources, and all MI role assignments. Confirm 
 
 ---
 
-## Company Branding
+## Branding
 
-The sidebar and header display a company/tenant name beneath the AzureOptimize Pro product name.
+Two optional branding fields are initialised empty on every fresh deploy and have code fallbacks, so the tool works out of the box and you customise them when ready.
 
-**Priority order:**
-1. `COMPANY_NAME` Function App setting (set via `-CompanyName` on the deploy script — takes precedence)
-2. Azure AD tenant display name (resolved automatically via Managed Identity — no config needed)
-3. Falls back to showing "AzureOptimize Pro" only if neither is available
+| Setting | Where shown | Deploy param | Fallback |
+|---------|-------------|-------------|---------|
+| `COMPANY_NAME` (Function App) | Sidebar + header subtitle | `-CompanyName` | Azure AD tenant display name |
+| `NEXT_PUBLIC_DEVELOPER_NAME` (Static Web App) | Login page footer | `-DeveloperName` | `"Tanishq Bansal"` |
 
 **Set during deployment:**
 ```powershell
 .\infra\Deploy-AzureCostOptimize.ps1 `
   -TenantId "<TENANT_ID>" -AdminPrincipalId "<OID>" -AppClientId "<CID>" `
-  -CompanyName "Contoso Ltd"
+  -CompanyName "Contoso Ltd" `
+  -DeveloperName "Tanishq Bansal"
 ```
 
-**Update name only (no re-deploy):**
+**Update branding only (no infrastructure re-deploy):**
 ```powershell
-.\infra\Deploy-AzureCostOptimize.ps1 -TenantId "<TENANT_ID>" -Update -CompanyName "Contoso Ltd"
+.\infra\Deploy-AzureCostOptimize.ps1 `
+  -TenantId "<TENANT_ID>" -Update `
+  -CompanyName "Contoso Ltd" `
+  -DeveloperName "Tanishq Bansal"
 ```
 
-**Or set directly via CLI:**
+> `NEXT_PUBLIC_DEVELOPER_NAME` is a build-time variable — the new value takes effect on the next GitHub Actions deployment after the setting is updated.
+
+**Direct CLI (Function App):**
 ```powershell
 az functionapp config appsettings set `
-  --name <functionapp-name> `
-  --resource-group rg-azureoptimize `
+  --name <functionapp-name> --resource-group rg-azureoptimize `
   --settings "COMPANY_NAME=Contoso Ltd"
 ```
 
-**Remove custom name (reverts to tenant name):**
+**Direct CLI (Static Web App):**
 ```powershell
-az functionapp config appsettings delete `
-  --name <functionapp-name> `
-  --resource-group rg-azureoptimize `
-  --setting-names COMPANY_NAME
+az staticwebapp appsettings set `
+  --name <swa-name> --resource-group rg-azureoptimize `
+  --setting-names "NEXT_PUBLIC_DEVELOPER_NAME=Tanishq Bansal"
 ```
 
 ---

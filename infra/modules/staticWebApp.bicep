@@ -16,6 +16,9 @@ param functionAppUrl string
 @description('Admin user Entra Object ID')
 param adminPrincipalId string
 
+@description('Optional developer/consultant name shown on the login page footer. Falls back to "Tanishq Bansal" if empty.')
+param developerName string = ''
+
 resource staticWebApp 'Microsoft.Web/staticSites@2023-01-01' = {
   name: staticWebAppName
   location: location
@@ -40,6 +43,7 @@ resource staticWebAppSettings 'Microsoft.Web/staticSites/config@2023-01-01' = {
     NEXT_PUBLIC_AZURE_REDIRECT_URI: 'https://${staticWebApp.properties.defaultHostname}'
     NEXT_PUBLIC_API_BASE_URL: '${functionAppUrl}/api'
     NEXT_PUBLIC_ADMIN_PRINCIPAL_ID: adminPrincipalId
+    NEXT_PUBLIC_DEVELOPER_NAME: developerName
   }
 }
 

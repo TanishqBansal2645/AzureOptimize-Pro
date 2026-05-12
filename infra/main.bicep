@@ -16,6 +16,9 @@ param tenantId string
 @description('Optional company/client name shown in the dashboard sidebar and header')
 param companyName string = ''
 
+@description('Optional developer/consultant name shown on the login page footer. Falls back to "Tanishq Bansal" if empty.')
+param developerName string = ''
+
 // ─── Variables ───────────────────────────────────────────────────────────────
 
 var functionAppName = 'func-azureoptimize-${uniqueSuffix}'
@@ -121,6 +124,7 @@ module staticWebApp 'modules/staticWebApp.bicep' = {
     appClientId: appClientId
     functionAppUrl: functionApp.outputs.functionAppUrl
     adminPrincipalId: adminPrincipalId
+    developerName: developerName
   }
 }
 

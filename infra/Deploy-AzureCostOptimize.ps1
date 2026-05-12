@@ -41,6 +41,11 @@
     If omitted, the Azure AD tenant display name is used automatically.
     Can also be set or updated at any time with -Update -CompanyName "New Name".
 
+.PARAMETER DeveloperName
+    Optional developer/consultant name shown in the login page footer.
+    Falls back to "Tanishq Bansal" if omitted.
+    Can also be updated at any time with -Update -DeveloperName "Your Name".
+
 .PARAMETER Update
     Re-run infrastructure update only (preserves data, skips code deployment setup).
 
@@ -54,11 +59,11 @@
     # Fresh install with automatic GitHub setup
     .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -AdminPrincipalId "yyy" -AppClientId "zzz" -GitHubToken "ghp_..."
 
-    # Fresh install with company branding
-    .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -AdminPrincipalId "yyy" -AppClientId "zzz" -CompanyName "Contoso Ltd"
+    # Fresh install with all branding
+    .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -AdminPrincipalId "yyy" -AppClientId "zzz" -CompanyName "Contoso Ltd" -DeveloperName "Tanishq Bansal"
 
-    # Update company name only
-    .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -Update -CompanyName "Contoso Ltd"
+    # Update branding only (no infrastructure re-deploy)
+    .\Deploy-AzureCostOptimize.ps1 -TenantId "xxx" -Update -CompanyName "Contoso Ltd" -DeveloperName "Tanishq Bansal"
 #>
 
 param(
@@ -76,6 +81,7 @@ param(
     [string] $GitHubToken = "",
     [string] $GitHubRepo = "TanishqBansal2645/AzureOptimize-Pro",
     [string] $CompanyName = "",
+    [string] $DeveloperName = "",
 
     [switch] $Update,
     [switch] $Remove,
@@ -280,7 +286,8 @@ if (-not $Update) {
 }
 
 $totalSteps = 6
-$trimmedCompanyName = $CompanyName.Trim()
+$trimmedCompanyName  = $CompanyName.Trim()
+$trimmedDeveloperName = $DeveloperName.Trim()
 
 # ─── Step 1: Login ────────────────────────────────────────────────────────────
 
@@ -309,7 +316,7 @@ if (-not $Update) {
         $deployOutput = az deployment group create `
             --resource-group $ResourceGroupName `
             --template-file $bicepPath `
-            --parameters "adminPrincipalId=$AdminPrincipalId" "appClientId=$AppClientId" "tenantId=$TenantId" "companyName=$trimmedCompanyName" `
+            --parameters "adminPrincipalId=$AdminPrincipalId" "appClientId=$AppClientId" "tenantId=$TenantId" "companyName=$trimmedCompanyName" "developerName=$trimmedDeveloperName" `
             --output json --only-show-errors 2>&1
 
         if ($LASTEXITCODE -ne 0) {
@@ -395,20 +402,35 @@ else {
     Write-Success "Skipped (update mode)"
 }
 
-# ─── Company Branding (optional) ─────────────────────────────────────────────
+# ─── Branding (optional — update mode only; fresh installs go via Bicep) ──────
 
-if ($trimmedCompanyName -and $script:functionAppName) {
-    Write-Host "  Setting company branding on Function App..." -ForegroundColor Gray
-    try {
-        az functionapp config appsettings set `
-            --name $script:functionAppName `
-            --resource-group $ResourceGroupName `
-            --settings "COMPANY_NAME=$trimmedCompanyName" `
-            --output none 2>$null
-        Write-Success "Company name configured: $trimmedCompanyName"
+if ($Update) {
+    $swaNameForBranding = az staticwebapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv 2>$null
+
+    if ($trimmedCompanyName -and $script:functionAppName) {
+        Write-Host "  Setting COMPANY_NAME on Function App..." -ForegroundColor Gray
+        try {
+            az functionapp config appsettings set `
+                --name $script:functionAppName `
+                --resource-group $ResourceGroupName `
+                --settings "COMPANY_NAME=$trimmedCompanyName" `
+                --output none 2>$null
+            Write-Success "Company name set: $trimmedCompanyName"
+        }
+        catch { Write-Warn "Could not set COMPANY_NAME: $_" }
     }
-    catch {
-        Write-Warn "Could not set COMPANY_NAME: $_"
+
+    if ($trimmedDeveloperName -and $swaNameForBranding) {
+        Write-Host "  Setting NEXT_PUBLIC_DEVELOPER_NAME on Static Web App..." -ForegroundColor Gray
+        try {
+            az staticwebapp appsettings set `
+                --name $swaNameForBranding `
+                --resource-group $ResourceGroupName `
+                --setting-names "NEXT_PUBLIC_DEVELOPER_NAME=$trimmedDeveloperName" `
+                --output none 2>$null
+            Write-Success "Developer name set: $trimmedDeveloperName (active on next deployment)"
+        }
+        catch { Write-Warn "Could not set NEXT_PUBLIC_DEVELOPER_NAME: $_" }
     }
 }
 
@@ -565,10 +587,10 @@ if (-not $Update) {
 Write-Host "  2. Open the dashboard and sign in with your Microsoft account" -ForegroundColor White
 Write-Host "  3. First cost data appears within 4 hours (timer-triggered)" -ForegroundColor White
 Write-Host "  4. Future code updates deploy automatically on git push" -ForegroundColor White
-if (-not $trimmedCompanyName) {
+if (-not $trimmedCompanyName -or -not $trimmedDeveloperName) {
     Write-Host ""
-    Write-Host "  TIP: Set company branding anytime:" -ForegroundColor Gray
-    Write-Host "  .\Deploy-AzureCostOptimize.ps1 -TenantId $TenantId -Update -CompanyName 'Your Company'" -ForegroundColor Gray
+    Write-Host "  TIP: Set branding anytime with -Update:" -ForegroundColor Gray
+    Write-Host "  .\Deploy-AzureCostOptimize.ps1 -TenantId $TenantId -Update -CompanyName 'Your Company' -DeveloperName 'Your Name'" -ForegroundColor Gray
 }
 Write-Host ""
 if (-not $Update) {
