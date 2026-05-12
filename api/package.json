@@ -2,7 +2,7 @@
   "name": "azureoptimize-pro-api",
   "version": "1.0.0",
   "description": "Azure Cost Optimization Tool - API Backend",
-  "main": "dist/src/functions/*.js",
+  "main": "dist/functions/*.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -w -p tsconfig.json",
