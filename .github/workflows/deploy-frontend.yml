@@ -20,6 +20,30 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Check required variables
+        run: |
+          missing=()
+          [ -z "$TENANT_ID" ]     && missing+=("NEXT_PUBLIC_AZURE_TENANT_ID")
+          [ -z "$CLIENT_ID" ]     && missing+=("NEXT_PUBLIC_AZURE_CLIENT_ID")
+          [ -z "$REDIRECT_URI" ]  && missing+=("NEXT_PUBLIC_AZURE_REDIRECT_URI")
+          [ -z "$API_BASE_URL" ]  && missing+=("NEXT_PUBLIC_API_BASE_URL")
+          [ -z "$ADMIN_OID" ]     && missing+=("NEXT_PUBLIC_ADMIN_PRINCIPAL_ID")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "ERROR: Required GitHub repository variables are not set:"
+            for v in "${missing[@]}"; do echo "  - $v"; done
+            echo ""
+            echo "Set them at: Settings → Secrets and variables → Actions → Variables"
+            echo "Then re-run this workflow."
+            exit 1
+          fi
+          echo "All required variables are set."
+        env:
+          TENANT_ID:    ${{ vars.NEXT_PUBLIC_AZURE_TENANT_ID }}
+          CLIENT_ID:    ${{ vars.NEXT_PUBLIC_AZURE_CLIENT_ID }}
+          REDIRECT_URI: ${{ vars.NEXT_PUBLIC_AZURE_REDIRECT_URI }}
+          API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          ADMIN_OID:    ${{ vars.NEXT_PUBLIC_ADMIN_PRINCIPAL_ID }}
+
       - name: Build
         working-directory: frontend
         env:
