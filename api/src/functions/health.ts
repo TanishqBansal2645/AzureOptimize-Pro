@@ -17,6 +17,7 @@ async function healthHandler(
         tenantId: process.env['AZURE_TENANT_ID'] ? 'configured' : 'missing',
         storageAccount: process.env['STORAGE_ACCOUNT_NAME'] ? 'configured' : 'missing',
         adminPrincipal: process.env['ADMIN_PRINCIPAL_ID'] ? 'configured' : 'missing',
+        nodeVersion: process.version,
       },
     }),
   };
