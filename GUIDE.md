@@ -456,6 +456,7 @@ NEXT_PUBLIC_AZURE_TENANT_ID=         # Azure tenant ID
 NEXT_PUBLIC_AZURE_REDIRECT_URI=      # http://localhost:3000 (dev) or deployed URL
 NEXT_PUBLIC_API_BASE_URL=            # Azure Functions URL
 NEXT_PUBLIC_DEVELOPER_NAME=          # Optional: white-label developer name (falls back to "Tanishq Bansal")
+NEXT_PUBLIC_ADMIN_PRINCIPAL_ID=      # Entra Object ID of the admin user IN THIS TENANT (see note below)
 ```
 
 ### API (`api/local.settings.json`)
@@ -465,8 +466,52 @@ NEXT_PUBLIC_DEVELOPER_NAME=          # Optional: white-label developer name (fal
     "AZURE_TENANT_ID": "",
     "STORAGE_ACCOUNT_NAME": "",
     "STORAGE_ACCOUNT_KEY": "",
-    "ADMIN_PRINCIPAL_ID": "",        // Entra Object ID of the admin user
+    "ADMIN_PRINCIPAL_ID": "",        // Entra Object ID of the admin user IN THIS TENANT (see note below)
     "KEY_VAULT_URI": ""
   }
 }
 ```
+
+---
+
+## Important: ADMIN_PRINCIPAL_ID for Guest Users
+
+If the admin is a **guest user** (e.g. a consultant whose home tenant is different from the client tenant), their Object ID differs between tenants. You must use the OID **in the client's tenant**, not the home tenant OID.
+
+**How to get the correct OID:**
+
+```bash
+# Replace the email with the guest user's UPN in the client tenant
+az ad user show --id "user_gmail.com#EXT#@clienttenant.onmicrosoft.com" \
+  --query id --output tsv
+```
+
+Or in the Azure Portal: Entra ID → Users → [search for the guest user] → Copy **Object ID**.
+
+**Both env vars must match:** `ADMIN_PRINCIPAL_ID` on the Function App AND `NEXT_PUBLIC_ADMIN_PRINCIPAL_ID` on the Static Web App must be set to the same OID.
+
+---
+
+## Important: CORS Configuration
+
+**Never configure App Service CORS** (portal → Function App → CORS) alongside this codebase. The isolated worker model sets CORS headers in function code; if App Service CORS is also configured, it intercepts responses and **suppresses the function-level headers**, breaking all browser API calls.
+
+If you accidentally enable App Service CORS:
+```bash
+az functionapp cors remove --name <func-app-name> --resource-group <rg> --allowed-origins '*'
+az functionapp cors remove --name <func-app-name> --resource-group <rg> --allowed-origins 'https://portal.azure.com'
+```
+
+The Bicep templates in this repo intentionally do **not** configure App Service CORS.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Browser shows CORS error | App Service CORS is configured | Remove all origins via `az functionapp cors remove` |
+| 403 on `/api/refresh` or `/api/costs/refresh` | `ADMIN_PRINCIPAL_ID` points to wrong user | Get correct OID in client tenant (see above) |
+| 500 on OPTIONS preflight | Never seen post-fix; was a 204→200 issue | Already fixed in `corsOptions.ts` |
+| Functions show healthy but data is empty | Timers haven't run yet | Click **Refresh All** in the dashboard, wait 1–3 min |
+| `az account set` fails | Wrong subscription ID | Ensure subscription belongs to the target tenant |
