@@ -455,6 +455,7 @@ NEXT_PUBLIC_AZURE_CLIENT_ID=         # Entra app registration client ID
 NEXT_PUBLIC_AZURE_TENANT_ID=         # Azure tenant ID
 NEXT_PUBLIC_AZURE_REDIRECT_URI=      # http://localhost:3000 (dev) or deployed URL
 NEXT_PUBLIC_API_BASE_URL=            # Azure Functions URL
+NEXT_PUBLIC_DEVELOPER_NAME=          # Optional: white-label developer name (falls back to "Tanishq Bansal")
 ```
 
 ### API (`api/local.settings.json`)

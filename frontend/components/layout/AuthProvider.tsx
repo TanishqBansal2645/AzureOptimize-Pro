@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { InteractionStatus } from '@azure/msal-browser';
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
 import { msalInstance, initializeMsal, getUserInfo, UserInfo } from '@/lib/auth';
 import { useRouter, usePathname } from 'next/navigation';
@@ -24,9 +25,8 @@ export function useAuth(): AuthContextValue {
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { accounts } = useMsal();
+  const { accounts, inProgress } = useMsal();
   const isAuthenticated = useIsAuthenticated();
-  const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<UserInfo | null>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -37,27 +37,32 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // MSAL is already initialized by AuthProvider before this mounts
     refreshUser();
-    setIsLoading(false);
   }, [refreshUser]);
 
   useEffect(() => {
     refreshUser();
   }, [accounts, refreshUser]);
 
+  // Wait for any in-flight MSAL operation (redirect processing, token refresh, etc.)
+  const isAuthBusy = inProgress !== InteractionStatus.None;
+
   useEffect(() => {
-    if (isLoading) return;
-    const isLoginPage = pathname === '/login' || pathname?.startsWith('/(auth)');
-    if (!isAuthenticated && !isLoginPage) {
+    if (isAuthBusy) return;
+
+    // Normalize trailing slash so /login and /login/ both match
+    const path = (pathname ?? '').replace(/\/$/, '');
+    const isAuthPage = path === '/login';
+
+    if (!isAuthenticated && !isAuthPage && path !== '') {
       router.replace('/login');
     }
-    if (isAuthenticated && isLoginPage) {
+    if (isAuthenticated && (isAuthPage || path === '')) {
       router.replace('/dashboard');
     }
-  }, [isAuthenticated, isLoading, pathname, router]);
+  }, [isAuthenticated, isAuthBusy, pathname, router]);
 
-  if (isLoading) {
+  if (isAuthBusy) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
         <div className="text-center space-y-4">
@@ -72,7 +77,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const isAdmin = user ? (adminPrincipalId ? user.oid === adminPrincipalId : true) : false;
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, isAdmin }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading: isAuthBusy, isAdmin }}>
       {children}
     </AuthContext.Provider>
   );

@@ -107,13 +107,11 @@ azureoptimize-pro/
 │   │   ├── scanStorage.ts           # Timer: 0 9 * * *
 │   │   ├── scanDatabases.ts         # Timer: 0 9 * * *
 │   │   ├── generateExcel.ts         # HTTP POST /api/reports/generate
-│   │   ├── getBudgets.ts            # HTTP GET  /api/budgets
-│   │   ├── saveBudget.ts            # HTTP POST /api/budgets
-│   │   ├── getRecommendations.ts    # HTTP GET  /api/recommendations
+│   │   ├── getBudgets.ts            # HTTP GET/POST /api/budgets
 │   │   ├── markImplemented.ts       # HTTP POST /api/recommendations/{id}/implement
 │   │   ├── getSavings.ts            # HTTP GET  /api/savings
-│   │   ├── triggerRefresh.ts        # HTTP POST /api/refresh (admin only — run all scanners)
-│   │   └── health.ts               # HTTP GET  /api/health
+│   │   ├── triggerRefresh.ts        # HTTP POST /api/refresh (admin only — run all 8 scanners in parallel)
+│   │   └── health.ts                # HTTP GET  /api/health (unauthenticated)
 │   └── src/lib/
 │       ├── azure/
 │       │   ├── costManagement.ts
@@ -442,6 +440,7 @@ NEXT_PUBLIC_AZURE_CLIENT_ID=        # Entra app registration client ID
 NEXT_PUBLIC_AZURE_TENANT_ID=        # Client tenant ID
 NEXT_PUBLIC_AZURE_REDIRECT_URI=     # App URL
 NEXT_PUBLIC_API_BASE_URL=           # Azure Functions URL
+NEXT_PUBLIC_DEVELOPER_NAME=         # Optional: white-label developer name (falls back to "Tanishq Bansal")
 ```
 
 ### API (`api/local.settings.json` for dev, Function App settings for prod)
@@ -495,7 +494,8 @@ Steps:
 1. `az login --tenant $TenantId` (if not already logged in to this tenant)
 2. Create resource group
 3. `az deployment group create --template-file main.bicep`
-4. Get all subscription IDs in tenant: `az account list --query "[].id" -o tsv`
+4. Get all subscription IDs **in this tenant only**: `az account list --query "[?state=='Enabled' && tenantId=='$TenantId'].id" -o tsv`  
+   ⚠️ Never use `[].id` — `az account list` returns subscriptions from ALL tenants the signed-in account has ever accessed, causing cross-tenant role assignment failures.
 5. For each subscription: assign `Reader`, `Cost Management Reader`, `Monitoring Reader` to Managed Identity
 6. Output dashboard URL
 7. On `-Update`: redeploy only app code
