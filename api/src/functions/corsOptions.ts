@@ -3,7 +3,7 @@ import { CORS_HEADERS } from '../lib/auth/validateUser';
 
 async function corsOptionsHandler(_request: HttpRequest): Promise<HttpResponseInit> {
   return {
-    status: 204,
+    status: 200,
     headers: { ...CORS_HEADERS },
     body: '',
   };
