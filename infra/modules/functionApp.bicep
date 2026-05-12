@@ -34,6 +34,9 @@ param appClientId string
 @description('Storage account connection string (required for bootstrap settings on Consumption plan)')
 param storageConnectionString string
 
+@description('Optional company/client name displayed in the dashboard header and sidebar. Falls back to AAD tenant display name if empty.')
+param companyName string = ''
+
 // Consumption App Service Plan
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   name: appServicePlanName
@@ -127,6 +130,10 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         {
           name: 'WEBSITE_RUN_FROM_PACKAGE'
           value: '1'
+        }
+        {
+          name: 'COMPANY_NAME'
+          value: companyName
         }
       ]
       ftpsState: 'Disabled'

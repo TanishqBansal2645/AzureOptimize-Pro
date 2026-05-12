@@ -13,6 +13,9 @@ param appClientId string
 @description('Azure tenant ID')
 param tenantId string
 
+@description('Optional company/client name shown in the dashboard sidebar and header')
+param companyName string = ''
+
 // ─── Variables ───────────────────────────────────────────────────────────────
 
 var functionAppName = 'func-azureoptimize-${uniqueSuffix}'
@@ -103,6 +106,7 @@ module functionApp 'modules/functionApp.bicep' = {
     tenantId: tenantId
     adminPrincipalId: adminPrincipalId
     appClientId: appClientId
+    companyName: companyName
   }
 }
 

@@ -280,6 +280,7 @@ if (-not $Update) {
 }
 
 $totalSteps = 6
+$trimmedCompanyName = $CompanyName.Trim()
 
 # ─── Step 1: Login ────────────────────────────────────────────────────────────
 
@@ -308,7 +309,7 @@ if (-not $Update) {
         $deployOutput = az deployment group create `
             --resource-group $ResourceGroupName `
             --template-file $bicepPath `
-            --parameters "adminPrincipalId=$AdminPrincipalId" "appClientId=$AppClientId" "tenantId=$TenantId" `
+            --parameters "adminPrincipalId=$AdminPrincipalId" "appClientId=$AppClientId" "tenantId=$TenantId" "companyName=$trimmedCompanyName" `
             --output json --only-show-errors 2>&1
 
         if ($LASTEXITCODE -ne 0) {
@@ -396,7 +397,6 @@ else {
 
 # ─── Company Branding (optional) ─────────────────────────────────────────────
 
-$trimmedCompanyName = $CompanyName.Trim()
 if ($trimmedCompanyName -and $script:functionAppName) {
     Write-Host "  Setting company branding on Function App..." -ForegroundColor Gray
     try {
