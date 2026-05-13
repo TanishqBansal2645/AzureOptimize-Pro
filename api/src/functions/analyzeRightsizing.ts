@@ -138,6 +138,9 @@ export async function analyzeAndStoreRightsizing(context: InvocationContext): Pr
 
       const metrics = await getVMMetrics(vm.id, totalMemoryBytes);
 
+      // Skip VMs with no monitoring data (deallocated/newly created — no meaningful signal)
+      if (metrics.dataPoints === 0) continue;
+
       // Only flag if both p95 CPU < 40% AND p95 Memory < 60%
       if (metrics.cpuP95 >= 40 || metrics.memoryP95 >= 60) {
         continue;

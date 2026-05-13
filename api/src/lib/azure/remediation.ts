@@ -53,10 +53,16 @@ export async function remediateRightsizing(
   // Deallocate (stops the VM, waits for completion — typically 1-3 min)
   await client.virtualMachines.beginDeallocateAndWait(resourceGroup, vmName);
 
-  // Resize to recommended SKU (fast, < 30 sec)
-  await client.virtualMachines.beginUpdateAndWait(resourceGroup, vmName, {
-    hardwareProfile: { vmSize: recommendedSku },
-  });
+  // Resize to recommended SKU. If this fails (e.g. SKU not available in region),
+  // restart the VM before re-throwing so it is not left permanently deallocated.
+  try {
+    await client.virtualMachines.beginUpdateAndWait(resourceGroup, vmName, {
+      hardwareProfile: { vmSize: recommendedSku },
+    });
+  } catch (err) {
+    client.virtualMachines.beginStart(resourceGroup, vmName).catch(() => {});
+    throw err;
+  }
 
   // Start the VM — fire-and-forget so we don't timeout waiting 3+ minutes
   client.virtualMachines.beginStart(resourceGroup, vmName).catch(() => {});
@@ -143,10 +149,18 @@ export async function remediateStorageDiskDowngrade(
     }
   }
 
-  // Change disk SKU — safe now whether attached (deallocated VM) or unattached
-  await client.disks.beginUpdateAndWait(resourceGroup, diskName, {
-    sku: { name: 'StandardSSD_LRS' },
-  });
+  // Change disk SKU. If this fails after we already deallocated the VM,
+  // restart it before re-throwing so it is not left permanently stopped.
+  try {
+    await client.disks.beginUpdateAndWait(resourceGroup, diskName, {
+      sku: { name: 'StandardSSD_LRS' },
+    });
+  } catch (err) {
+    if (vmWasRunning && vmName) {
+      client.virtualMachines.beginStart(vmRg, vmName).catch(() => {});
+    }
+    throw err;
+  }
 
   // Start the VM again — fire-and-forget to avoid HTTP timeout
   if (vmWasRunning && vmName) {
@@ -239,6 +253,19 @@ function parseSqlResourceId(resourceId: string): { serverName: string; databaseN
   };
 }
 
+// Valid Azure SQL Standard DTU values (Basic is always 5 DTU)
+const STANDARD_DTUS = [10, 20, 50, 100, 200, 400, 800, 1600, 3000];
+
+function resolveSqlSku(recommendedCapacity: number): { name: string; tier: string; capacity: number } {
+  if (recommendedCapacity < 10) {
+    // Below minimum Standard (10 DTU) — use Basic tier
+    return { name: 'Basic', tier: 'Basic', capacity: 5 };
+  }
+  // Find the largest valid Standard DTU that does not exceed the recommendation
+  const capacity = [...STANDARD_DTUS].reverse().find((d) => d <= recommendedCapacity) ?? 10;
+  return { name: 'Standard', tier: 'Standard', capacity };
+}
+
 export async function remediateSqlDatabase(
   subscriptionId: string,
   resourceGroup: string,
@@ -252,19 +279,17 @@ export async function remediateSqlDatabase(
   const client = new SqlManagementClient(credential, subscriptionId);
   const currentDb = await client.databases.get(resourceGroup, serverName, databaseName);
 
+  const sku = resolveSqlSku(recommendedCapacity);
+
   await client.databases.beginCreateOrUpdateAndWait(resourceGroup, serverName, databaseName, {
     location: currentDb.location ?? 'eastus',
-    sku: {
-      name: targetTier === 'Basic' ? 'Basic' : 'Standard',
-      tier: targetTier === 'Basic' ? 'Basic' : 'Standard',
-      capacity: recommendedCapacity,
-    },
+    sku,
   });
 
   return {
     success: true,
     automated: true,
-    action: `SQL Database ${databaseName} scaled to ${targetTier} ${recommendedCapacity} DTU`,
+    action: `SQL Database ${databaseName} scaled to ${sku.tier} ${sku.capacity} DTU`,
     details: 'Brief connection interruption may have occurred during scaling.',
   };
 }
