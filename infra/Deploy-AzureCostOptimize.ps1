@@ -100,6 +100,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$script:tmpDir = if ($script:tmpDir) { $script:tmpDir } elseif ($env:TMPDIR) { $env:TMPDIR } else { "/tmp" }
 
 if (-not $ClientEnvironment) { $ClientEnvironment = $ResourceGroupName }
 
@@ -229,8 +230,8 @@ urllib.request.urlopen(urllib.request.Request(
              "User-Agent": "AzureOptimize-Deploy"}))
 '@
 
-    $pyScript   = Join-Path $env:TEMP "azopt_gh_secret.py"
-    $valueFile  = Join-Path $env:TEMP "azopt_gh_value.bin"
+    $pyScript   = Join-Path $script:tmpDir "azopt_gh_secret.py"
+    $valueFile  = Join-Path $script:tmpDir "azopt_gh_value.bin"
     Set-Content -Path $pyScript -Value $pythonCode -Encoding utf8
     # Write value as real bytes to a temp file - avoids PowerShell pipe byte corruption
     [System.IO.File]::WriteAllBytes($valueFile, [System.Text.Encoding]::UTF8.GetBytes($Value))
@@ -793,7 +794,7 @@ if ($GitHubToken) {
 }
 else {
     # Save credentials to temp files for manual GitHub setup
-    $secretsDir = Join-Path $env:TEMP "azopt-github-secrets"
+    $secretsDir = Join-Path $script:tmpDir "azopt-github-secrets"
     New-Item -ItemType Directory -Path $secretsDir -Force | Out-Null
     Set-Content -Path (Join-Path $secretsDir "AZURE_STATIC_WEB_APPS_API_TOKEN.txt") -Value $deployToken -Encoding utf8
     Set-Content -Path (Join-Path $secretsDir "AZURE_FUNCTIONAPP_PUBLISH_PROFILE.xml") -Value $publishProfile -Encoding utf8
