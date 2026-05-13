@@ -704,10 +704,29 @@ if ($Update) {
 }
 else {
 
-$swaName = az staticwebapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv
+$swaName     = az staticwebapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv
 $deployToken = az staticwebapp secrets list --name $swaName --resource-group $ResourceGroupName --query "properties.apiKey" -o tsv
-# Join into a single string - az returns a string[] (one element per line) in PowerShell
-$publishProfile = (az functionapp deployment list-publishing-profiles --name $script:functionAppName --resource-group $ResourceGroupName --xml) -join "`n"
+
+# Fetch publish profile with retry+timeout - az can hang indefinitely on a freshly created app
+Write-Host "  Fetching function app publish profile..." -ForegroundColor Gray
+$publishProfile = $null
+for ($ppRetry = 1; $ppRetry -le 6; $ppRetry++) {
+    $ppJob = Start-Job -ScriptBlock {
+        param($fn, $rg)
+        az functionapp deployment list-publishing-profiles --name $fn --resource-group $rg --xml --only-show-errors 2>$null
+    } -ArgumentList $script:functionAppName, $ResourceGroupName
+    $ppDone = Wait-Job $ppJob -Timeout 40
+    if ($ppDone) {
+        $ppOut = (Receive-Job $ppJob | Where-Object { $_ -notmatch "^WARNING" }) -join "`n"
+        Remove-Job $ppJob -Force
+        if ($ppOut -match "<publishData") { $publishProfile = $ppOut; break }
+    } else {
+        Stop-Job $ppJob -PassThru | Remove-Job -Force
+    }
+    Write-Host "  ... Attempt $ppRetry/6 timed out or returned empty. Retrying in 20s..." -ForegroundColor DarkGray
+    Start-SleepWithHeartbeat -Seconds 20 -Message "waiting for Kudu/SCM to initialize"
+}
+if (-not $publishProfile) { throw "Could not fetch publish profile after 6 attempts. Try re-running with -Update after a few minutes." }
 
 if ($GitHubToken) {
     $ghHeaders = @{
