@@ -704,6 +704,13 @@ if ($Update) {
 }
 else {
 
+if ($GitHubToken) {
+    Write-Host "  Ensuring PyNaCl is installed..." -ForegroundColor Gray
+    $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    pip3 install PyNaCl --quiet 2>&1 | Out-Null
+    $ErrorActionPreference = $prevEAP
+}
+
 $swaName     = az staticwebapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv
 $deployToken = az staticwebapp secrets list --name $swaName --resource-group $ResourceGroupName --query "properties.apiKey" -o tsv
 
