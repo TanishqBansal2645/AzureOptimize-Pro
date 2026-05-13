@@ -2,7 +2,8 @@
 
 > **Time required:** ~30–45 minutes (mostly waiting for Azure cold start — Consumption plan takes 15–27 min)  
 > **Prerequisites:** Azure Cloud Shell (or local: Azure CLI + PowerShell 7+)  
-> **Required role:** Owner on the target Azure subscription
+> **Required role:** Owner on the target Azure subscription  
+> **Resource group name:** Auto-derived from the client's tenant ID — e.g. tenant `98b65c17-...` → `rg-azureoptimize-a188e9`. Each client gets a unique, isolated resource group with no extra input needed. Override with `-ResourceGroupName` if you prefer a custom name.
 
 ---
 

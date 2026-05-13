@@ -85,7 +85,7 @@ param(
     [string] $AppClientId = "",
 
     [string] $Location = "eastus",
-    [string] $ResourceGroupName = "rg-azureoptimize",
+    [string] $ResourceGroupName = "",
     [string] $GitHubToken = "",
     [string] $GitHubRepo = "TanishqBansal2645/AzureOptimize-Pro",
     [string] $ClientEnvironment = "",
@@ -102,6 +102,10 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $script:tmpDir = if ($script:tmpDir) { $script:tmpDir } elseif ($env:TMPDIR) { $env:TMPDIR } else { "/tmp" }
 
+if (-not $ResourceGroupName) {
+    $tenantSuffix      = $TenantId.Replace("-", "").Substring(26, 6)
+    $ResourceGroupName = "rg-azureoptimize-$tenantSuffix"
+}
 if (-not $ClientEnvironment) { $ClientEnvironment = $ResourceGroupName }
 
 # --- Helper Functions ---------------------------------------------------------

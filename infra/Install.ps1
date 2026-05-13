@@ -56,7 +56,7 @@ param(
     [string] $CompanyName = "",
     [string] $DeveloperName = "",
     [string] $Location = "eastus",
-    [string] $ResourceGroupName = "rg-azureoptimize",
+    [string] $ResourceGroupName = "",
     [string] $RepoUrl = "https://github.com/TanishqBansal2645/AzureOptimize-Pro.git",
     [string] $Branch = "main",
     [switch] $SkipTests
@@ -109,6 +109,12 @@ try {
     Write-Host "  Tenant: $TenantId" -ForegroundColor Green
     Write-Host "  Subscription: $($account.name)" -ForegroundColor Green
 }
+
+if (-not $ResourceGroupName) {
+    $tenantSuffix    = $TenantId.Replace("-", "").Substring(26, 6)
+    $ResourceGroupName = "rg-azureoptimize-$tenantSuffix"
+}
+Write-Host "  Resource group: $ResourceGroupName" -ForegroundColor Green
 catch {
     Write-Host "  Not logged in to Azure. Run 'az login' first." -ForegroundColor Red
     exit 1
