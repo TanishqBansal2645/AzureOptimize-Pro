@@ -1,6 +1,6 @@
 # AzureOptimize Pro — Deployment Guide
 
-> **Time required:** ~30–35 minutes (mostly waiting for Azure cold start)  
+> **Time required:** ~30–45 minutes (mostly waiting for Azure cold start — Consumption plan takes 15–27 min)  
 > **Prerequisites:** Azure Cloud Shell (or local: Azure CLI + PowerShell 7+)  
 > **Required role:** Owner on the target Azure subscription
 
@@ -94,12 +94,12 @@ Creates the Entra App Registration, grants admin consent, and prints the exact d
 | 2 | Bicep: Storage, Function App, Static Web App, Key Vault, Managed Identity | 5–8 min |
 | 3 | RBAC: Reader + Cost Management Reader + Monitoring Reader + **Contributor** on all tenant subscriptions | <1 min |
 | 4 | Configure GitHub Actions secrets (if `-GitHubToken` provided) and trigger first deploy | 8 min |
-| 5 | API health check (retries 25×, up to 18 min — covers Consumption plan cold start) | ≤18 min |
+| 5 | API health check (retries 25×, up to 18 min — covers Consumption plan cold start of 15–27 min) | ≤18 min |
 | 6 | Smoke tests | <1 min |
 
 > **Contributor role:** Required for automated remediation (deleting idle resources, resizing VMs, enabling AHB, scaling databases). Without it, scanning and reporting work normally, but the Implement button will fail with a permissions error.
 
-**Total: ~30–35 minutes** (most of the wait is the Consumption plan cold start after code deployment)
+**Total: ~30–45 minutes** (most of the wait is the Consumption plan cold start: 15–27 min from deploy completion to first HTTP response)
 
 #### Optional: Branding
 
@@ -155,10 +155,16 @@ After the first deployment, add the production URL to the Entra App:
 Or via Azure CLI:
 
 ```powershell
+# IMPORTANT: must use --set spa=... (Single-page application platform), NOT --web-redirect-uris
+# MSAL Browser uses Authorization Code + PKCE which Azure AD only allows for SPA-platform URIs.
+# Adding to web.redirectUris fixes the AADSTS50011 login error but the auth-code exchange
+# still fails silently, leaving no account in cache → redirect loop back to login page.
 az ad app update `
   --id "<APP_CLIENT_ID>" `
-  --web-redirect-uris "http://localhost:3000" "<STATIC_WEB_APP_URL>"
+  --set "spa={`"redirectUris`":[`"<STATIC_WEB_APP_URL>`",`"<STATIC_WEB_APP_URL>/`",`"http://localhost:3000`"]}"
 ```
+
+> Add both the bare URL and the trailing-slash variant. Replace `<STATIC_WEB_APP_URL>` with the exact URL from `az staticwebapp list -g rg-azureoptimize --query "[0].defaultHostname" -o tsv` prefixed with `https://`.
 
 ### Step 4 — First Login
 
@@ -317,6 +323,23 @@ To re-deploy for a specific client after a code update: run the workflows manual
 
 ## Troubleshooting
 
+### Sign-in fails: "AADSTS50011: redirect URI does not match" — or login succeeds but redirects back to login page
+Both symptoms have the same root cause: the Static Web App URL is not registered as a **Single-page application** (SPA) redirect URI in the Entra App Registration.
+
+- **AADSTS50011** — URL is not registered at all (Microsoft rejects the redirect before login).
+- **Redirect loop after login** — URL is registered under the wrong platform (`web` instead of `spa`). MSAL Browser uses Authorization Code + PKCE, which Azure AD only permits for SPA-platform URIs. A `web`-platform URI fixes the AADSTS50011 error but the auth-code exchange silently fails, so no account is stored in cache and `AuthGuard` bounces the user back to login.
+
+Fix — register the URL under the SPA platform:
+
+```powershell
+$url = "https://$(az staticwebapp list -g rg-azureoptimize --query '[0].defaultHostname' -o tsv)"
+$appId = "<APP_CLIENT_ID>"   # or: az ad app list --filter "displayName eq 'AzureOptimize Pro'" --query "[0].appId" -o tsv
+az ad app update --id $appId `
+  --set "spa={`"redirectUris`":[`"$url`",`"$url/`",`"http://localhost:3000`"]}"
+```
+
+> This error also appears when the Entra App Registration is registered in a different tenant than the one being deployed to. Verify `NEXT_PUBLIC_AZURE_TENANT_ID` in the GitHub environment matches the target tenant.
+
 ### Login page shows wrong tenant / "Sign-in failed" on fresh deploy
 The frontend `NEXT_PUBLIC_*` variables were not set before the GitHub Actions build ran. Check the environment variables at `Settings → Environments → {your-environment} → Variables`. All 6 `NEXT_PUBLIC_*` variables must be present. If missing, set them and re-run the `Deploy Frontend` workflow manually (set `client_environment` to the environment name).
 
@@ -335,7 +358,7 @@ az role assignment list --assignee $(az ad signed-in-user show --query id -o tsv
 ```
 
 ### Health check times out after deployment
-Function App on Consumption plan can take **10–18 minutes** on a fresh deployment cold start. The deploy script retries for ~18 minutes. If still failing after that window:
+Function App on Consumption plan can take **15–27 minutes** on a fresh deployment cold start (the first 2 startup attempts crash before App Insights initialises; the 3rd succeeds, showing `StartupCount=3`). The deploy script retries for ~18 minutes. If still failing after that window:
 
 ```powershell
 az functionapp log tail --name <app-name> --resource-group rg-azureoptimize
@@ -346,7 +369,78 @@ You can also check App Insights for startup traces:
 # In Azure Portal → Application Insights → Logs:
 traces | where timestamp > ago(30m) | where message contains "StartupCount" | order by timestamp desc
 ```
-A successful start shows `StartupCount=1` (or higher on retry). If `StartupCount` keeps increasing without a "Host started" message, there may be a code error — check the function app logs.
+A successful start shows `StartupCount=3` (two fast-crash attempts before the host stabilises). If no `StartupCount` trace appears at all after 20 minutes, check the eventlog via Kudu (`https://<app>.scm.azurewebsites.net/api/vfs/LogFiles/eventlog.xml`) for IIS EventID 1005 (crash) vs 1032 (started).
+
+### API returns "Site Not Found" HTML after redeployment
+**Symptom:** `/api/health` returns an Azure-branded HTML 404 page ("404 Web Site not found") rather than JSON — even after a successful GitHub Actions deployment and confirmed host startup in App Insights.
+
+**Cause:** Azure's front-end routing layer (AFE) has a stale entry for this function app hostname. This can happen after `az functionapp restart` is used, and the corrupted entry can **survive a delete + recreate of the app with the same name**.
+
+**Diagnosis:**
+```powershell
+# If the response Content-Type is text/html, it is an AFE-level 404, not an app-level 404
+Invoke-WebRequest https://<app>.azurewebsites.net/api/health -UseBasicParsing | Select StatusCode, @{n='ct';e={$_.Headers.'Content-Type'}}
+
+# Confirm timer triggers are still working (proves the host is alive despite HTTP being broken)
+# In App Insights → Logs:
+traces | where timestamp > ago(1h) | where message startswith "Executed" | order by timestamp desc
+```
+
+**Fix:**
+1. Create a new function app with a **different name** (the new hostname gets a fresh, clean AFE routing entry):
+```powershell
+az functionapp create --name <new-name> --resource-group rg-azureoptimize `
+  --consumption-plan-location eastus --runtime node --runtime-version 22 `
+  --functions-version 4 --storage-account <storage-account> --os-type Windows
+```
+2. Copy all app settings and assign the managed identity from the old app.
+3. Update the GitHub Actions environment (`Settings → Environments → {env}`):
+   - `AZURE_FUNCTIONAPP_PUBLISH_PROFILE` → new app's publish profile
+   - `AZURE_FUNCTIONAPP_NAME` → new app name
+   - `NEXT_PUBLIC_API_BASE_URL` → `https://<new-name>.azurewebsites.net/api`
+4. Run the **Deploy API** workflow (this uses `azure/functions-action@v1` which handles `WEBSITE_RUN_FROM_PACKAGE=1` correctly — do not use `az functionapp deployment source config-zip` or `az webapp deploy` directly, as they conflict with that setting).
+5. Run the **Deploy Frontend** workflow to rebuild the Next.js bundle with the new API URL.
+6. Delete the old broken app once the new one is confirmed healthy.
+
+> **Do NOT** use `az functionapp restart` at any point — it de-registers the HTTP routing entry and makes the situation worse.
+
+### Frontend deploy fails: "deployment_token provided was invalid"
+The `AZURE_STATIC_WEB_APPS_API_TOKEN` secret in the GitHub environment has expired or was never set for that environment. Refresh it:
+
+```powershell
+# Get fresh token
+$swaName = az staticwebapp list -g rg-azureoptimize --query "[0].name" -o tsv
+$token = az staticwebapp secrets list --name $swaName --resource-group rg-azureoptimize --query "properties.apiKey" -o tsv
+
+# Encrypt and push to GitHub (repeat for each environment: rg-azureoptimize, default)
+pip install PyNaCl -q
+$headers = @{Authorization="token <YOUR_PAT>"; "Accept"="application/vnd.github+json"}
+foreach ($env in @("rg-azureoptimize", "default")) {
+    $key = Invoke-RestMethod -Uri "https://api.github.com/repos/TanishqBansal2645/AzureOptimize-Pro/environments/$env/secrets/public-key" -Headers $headers
+    $enc = python -c "
+import base64; from nacl import public
+box = public.SealedBox(public.PublicKey(base64.b64decode('$($key.key)')))
+print(base64.b64encode(box.encrypt(b'$token')).decode())"
+    $body = @{encrypted_value=$enc; key_id=$key.key_id} | ConvertTo-Json
+    Invoke-RestMethod -Uri "https://api.github.com/repos/TanishqBansal2645/AzureOptimize-Pro/environments/$env/secrets/AZURE_STATIC_WEB_APPS_API_TOKEN" -Method Put -Headers $headers -Body $body -ContentType "application/json"
+    Write-Host "$env updated"
+}
+```
+
+Then re-run the Deploy Frontend workflow from GitHub Actions.
+
+> Always update BOTH the `rg-azureoptimize` AND `default` environments — the workflow uses `rg-azureoptimize` when triggered manually by the deploy script, and `default` on push-triggered runs.
+
+### Pages load but show "Failed to load [data]" after login
+Symptom: login works, dashboard loads, but data cards show error messages. This means the frontend is calling the wrong API URL — typically the previous function app that has since been deleted or renamed.
+
+**Cause:** The frontend bundle bakes in `NEXT_PUBLIC_API_BASE_URL` at build time. If the variable was updated in GitHub but the frontend was not successfully redeployed, the old URL is still in the bundle.
+
+**Fix:**
+1. Verify the correct API URL: `az functionapp list -g rg-azureoptimize --query "[0].defaultHostname" -o tsv` → should be `func-azopt2-jmf62z.azurewebsites.net`
+2. Check the GitHub environment variable matches: `Settings → Environments → default → Variables → NEXT_PUBLIC_API_BASE_URL`
+3. Check the last Deploy Frontend run in GitHub Actions — if it failed, fix the failure (usually expired SWA token, see above) and redeploy
+4. Trigger redeploy: GitHub Actions → Deploy Frontend → Run workflow → `client_environment: rg-azureoptimize`
 
 ### "Dashboard loads but shows No data"
 Cost data collects on 4-hour timers. Wait up to 4 hours, or trigger a manual refresh via the dashboard's Refresh button.

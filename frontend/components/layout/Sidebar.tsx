@@ -3,9 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
-import { fetchConfig } from '@/lib/api';
 import {
   LayoutDashboard,
   Trash2,
@@ -62,13 +60,6 @@ const GRADIENT_STYLE = {
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
-  const { data: config } = useQuery({
-    queryKey: ['config'],
-    queryFn: fetchConfig,
-    staleTime: Infinity,
-    gcTime: Infinity,
-  });
-  const companyName = config?.companyName ?? '';
 
   return (
     <aside
@@ -92,11 +83,8 @@ export function Sidebar() {
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="font-bold text-sm leading-tight tracking-tight text-white truncate">
-              {companyName ? 'AzureOptimize Pro' : 'AzureOptimize'}
-            </p>
-            <p className="text-xs font-semibold truncate" style={GRADIENT_STYLE}>
-              {companyName || 'Pro'}
+            <p className="font-bold text-sm leading-tight tracking-tight truncate" style={GRADIENT_STYLE}>
+              AzureOptimize Pro
             </p>
           </div>
         )}

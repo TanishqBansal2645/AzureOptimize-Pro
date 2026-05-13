@@ -46,9 +46,11 @@ export function Header() {
     <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-slate-100 shadow-sm">
       <div>
         <h1 className="text-lg font-semibold text-slate-900">{title}</h1>
-        <p className="text-xs font-medium" style={{ background: 'linear-gradient(90deg, #2563eb, #0ea5e9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-          {companyName || 'AzureOptimize Pro'}
-        </p>
+        {companyName && (
+          <p className="text-sm font-semibold" style={{ background: 'linear-gradient(90deg, #2563eb, #0ea5e9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+            {companyName}
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
