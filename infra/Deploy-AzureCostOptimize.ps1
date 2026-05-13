@@ -134,6 +134,19 @@ function Show-Banner {
     Write-Host ""
 }
 
+function Start-SleepWithHeartbeat {
+    param([int]$Seconds, [string]$Message = "Waiting")
+    $elapsed = 0
+    while ($elapsed -lt $Seconds) {
+        $wait = [Math]::Min(30, $Seconds - $elapsed)
+        Start-Sleep -Seconds $wait
+        $elapsed += $wait
+        if ($elapsed -lt $Seconds) {
+            Write-Host "  ... $Message (${elapsed}s / ${Seconds}s)" -ForegroundColor DarkGray
+        }
+    }
+}
+
 function New-GitHubEnvironment {
     param([string] $Token, [string] $Repo, [string] $EnvName)
     $headers = @{
@@ -464,22 +477,45 @@ catch {
 
 if (-not $Update) {
     Write-Step 2 $totalSteps "Provisioning infrastructure (Bicep)"
-    Write-Host "  This may take 5-10 minutes..." -ForegroundColor Gray
+    Write-Host "  This may take 5-15 minutes. Status is printed every 30s to keep Cloud Shell alive." -ForegroundColor Gray
 
     try {
         az group create --name $ResourceGroupName --location $Location --output none
 
-        $deployOutput = az deployment group create `
+        az deployment group create `
             --resource-group $ResourceGroupName `
+            --name main `
             --template-file $bicepPath `
             --parameters "adminPrincipalId=$AdminPrincipalId" "appClientId=$AppClientId" "tenantId=$TenantId" "companyName=$trimmedCompanyName" "developerName=$trimmedDeveloperName" `
-            --output json --only-show-errors 2>&1
+            --no-wait --output none --only-show-errors
 
-        if ($LASTEXITCODE -ne 0) {
-            throw "Bicep deployment failed: $($deployOutput -join "`n")"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to start Bicep deployment" }
+
+        Write-Host "  Deployment started. Polling every 30s..." -ForegroundColor Gray
+        $biStart = Get-Date
+        while ($true) {
+            Start-Sleep -Seconds 30
+            $biElapsed = [int]($(Get-Date) - $biStart).TotalSeconds
+            $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+            $state = az deployment group show `
+                --resource-group $ResourceGroupName --name main `
+                --query "properties.provisioningState" -o tsv 2>$null
+            $ErrorActionPreference = $prevEAP
+            Write-Host "  ... [$([math]::Round($biElapsed/60,1)) min] Deployment: $state" -ForegroundColor DarkGray
+            if ($state -eq "Succeeded") { break }
+            if ($state -eq "Failed" -or $state -eq "Canceled") {
+                $errJson = az deployment group show `
+                    --resource-group $ResourceGroupName --name main `
+                    --query "properties.error" -o json 2>$null
+                throw "Bicep deployment $state`: $errJson"
+            }
+            if ($biElapsed -gt 1200) { throw "Bicep deployment timed out after 20 minutes" }
         }
 
-        $deployOutput = ($deployOutput | Where-Object { $_ -notmatch "^WARNING" }) -join "" | ConvertFrom-Json
+        $deployOutput = (az deployment group show `
+            --resource-group $ResourceGroupName --name main `
+            --output json --only-show-errors 2>&1 |
+            Where-Object { $_ -notmatch "^WARNING" }) -join "" | ConvertFrom-Json
 
         $outputs = $deployOutput.properties.outputs
         $script:dashboardUrl = $outputs.dashboardUrl.value
@@ -747,7 +783,7 @@ if ($GitHubToken) {
         Write-Success "Deployment workflows triggered"
         Write-Host "  Track progress: https://github.com/$GitHubRepo/actions" -ForegroundColor Gray
         Write-Host "  Waiting 8 minutes for GitHub Actions deployment to complete..." -ForegroundColor Gray
-        Start-Sleep -Seconds 480
+        Start-SleepWithHeartbeat -Seconds 480 -Message "GitHub Actions deploying"
     }
     catch {
         Write-Warn "Could not trigger workflows automatically: $_"
@@ -829,13 +865,13 @@ for ($i = 1; $i -le $maxRetries; $i++) {
         }
         else {
             Write-Warn "Unexpected status: $($healthResponse.status). Retrying ($i/$maxRetries)..."
-            if ($i -lt $maxRetries) { Start-Sleep -Seconds $retryDelay }
+            if ($i -lt $maxRetries) { Start-SleepWithHeartbeat -Seconds $retryDelay -Message "health check" }
         }
     }
     catch {
         if ($i -lt $maxRetries) {
             Write-Host "  Health check attempt $i/$maxRetries failed. Retrying in ${retryDelay}s..." -ForegroundColor Gray
-            Start-Sleep -Seconds $retryDelay
+            Start-SleepWithHeartbeat -Seconds $retryDelay -Message "health check"
         }
     }
 }
