@@ -1,4 +1,4 @@
-﻿<#
+#
 .SYNOPSIS
     Deploys AzureOptimize Pro to a client Azure tenant.
 

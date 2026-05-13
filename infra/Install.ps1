@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     One-command installer for AzureOptimize Pro  -  run directly from Azure Cloud Shell.
 
