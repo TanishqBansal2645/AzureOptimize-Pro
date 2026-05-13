@@ -65,6 +65,10 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+# Always write a transcript to ~/azopt.log so nohup runs have a full readable log
+$transcriptPath = Join-Path $HOME "azopt.log"
+try { Start-Transcript -Path $transcriptPath -Append -Force | Out-Null } catch {}
+
 # Resolve GitHubToken from environment variable if not passed as a parameter
 if (-not $GitHubToken -and $env:GITHUB_TOKEN) {
     $GitHubToken = $env:GITHUB_TOKEN
