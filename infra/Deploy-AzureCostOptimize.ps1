@@ -27,13 +27,15 @@
     Azure region to deploy to. Default: eastus
 
 .PARAMETER ResourceGroupName
-    Name of the resource group. Default: rg-azureoptimize
+    Name of the resource group. Auto-derived from the last 6 chars of the tenant ID if
+    not specified (e.g. tenant 98b65c17-... -> rg-azureoptimize-a188e9).
+    Each client tenant produces a unique, deterministic name. Override only if needed.
 
 .PARAMETER GitHubToken
     Optional GitHub Personal Access Token to automatically configure GitHub Actions
     secrets, repository variables, and trigger the first deployment.
     Required scopes: repo (classic PAT) or Actions read/write (fine-grained PAT).
-    Install PyNaCl first: pip install PyNaCl
+    PyNaCl is installed automatically when this token is provided.
 
 .PARAMETER GitHubRepo
     GitHub repo in owner/repo format. Default: TanishqBansal2645/AzureOptimize-Pro

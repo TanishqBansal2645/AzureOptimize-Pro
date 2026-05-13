@@ -15,7 +15,7 @@
     The Azure tenant ID where the solution is deployed.
 
 .PARAMETER ResourceGroupName
-    Name of the resource group to delete. Default: rg-azureoptimize
+    Name of the resource group to delete. Auto-derived from the tenant ID if omitted.
 
 .PARAMETER AppClientId
     The Entra App Registration client ID. If provided, the App Registration is also deleted.
@@ -34,7 +34,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $TenantId,
 
-    [string] $ResourceGroupName = "rg-azureoptimize",
+    [string] $ResourceGroupName = "",
 
     [string] $AppClientId = "",
 

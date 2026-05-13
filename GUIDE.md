@@ -24,7 +24,7 @@ Every major Azure cost tool (Cloudability, CloudHealth, Finout, nOps) charges a 
 ```
 Client's Azure Tenant
 ──────────────────────────────────────────────────────────────────
-  Resource Group: rg-azureoptimize
+  Resource Group: rg-azureoptimize-<suffix>  (auto-derived from tenant ID)
 
   ┌─────────────────────────┐    ┌─────────────────────────────┐
   │  Azure Static Web App   │    │  Azure Function App         │

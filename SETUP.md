@@ -33,7 +33,7 @@ Three operations cover the full lifecycle — all are single commands from the c
 
 | Operation | When to use | Command |
 |-----------|-------------|---------|
-| **Install** | New client tenant | `irm .../Install.ps1 \| iex` |
+| **Install** | New client tenant | `& ([scriptblock]::Create((irm .../Install.ps1)))` |
 | **Update** | After code changes, RBAC drift | `... -Update` |
 | **Remove** | End of engagement | `... -Remove` |
 
@@ -97,7 +97,7 @@ export GITHUB_TOKEN="ghp_..."
 
 # Download the script and run in background
 curl -s https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 > ~/Install.ps1
-nohup pwsh -File ~/Install.ps1 > ~/azopt.log 2>&1 &
+nohup pwsh -File ~/Install.ps1 > /dev/null 2>&1 &
 echo "Deploy running (PID $!). Watching log — Ctrl+C to stop watching (deploy keeps running):"
 tail -f ~/azopt.log
 ```
@@ -112,8 +112,8 @@ cat ~/azopt.log          # see the full log from the start
 **Update** (repo already cloned):
 ```bash
 cd ~/azureoptimize && git pull origin main --quiet
-nohup pwsh -File ~/azureoptimize/infra/Install.ps1 -Update > ~/azopt-update.log 2>&1 &
-tail -f ~/azopt-update.log
+nohup pwsh -File ~/azureoptimize/infra/Install.ps1 -Update > /dev/null 2>&1 &
+tail -f ~/azopt.log
 ```
 
 **Remove** — run interactively (has a confirmation prompt, completes in under 2 minutes):
@@ -161,10 +161,10 @@ Each step prints `[OK]` on success or `[FAIL]` with the exact reason and fix on 
 .\infra\Deploy-AzureCostOptimize.ps1 `
   -TenantId          "<TENANT_ID>" `
   -AdminPrincipalId  "<ADMIN_OBJECT_ID>" `
-  -AppClientId       "<APP_CLIENT_ID>" `
-  -Location          "eastus" `
-  -ResourceGroupName "rg-azureoptimize"
+  -AppClientId       "<APP_CLIENT_ID>"
 ```
+
+> `Location` and `ResourceGroupName` use auto-derived defaults (`eastus` and `rg-azureoptimize-<tenant-suffix>`). Override only if needed.
 
 **What it provisions:**
 
@@ -215,7 +215,7 @@ PAT scopes needed: `repo` (classic) or Actions read/write (fine-grained). PyNaCl
 
 Each client gets its own GitHub Environment (named after the resource group, e.g. `rg-contoso`). Client credentials are fully isolated from each other inside the same repo. The `default` environment is also updated so that automatic deploys on push always target the most recently configured client.
 
-Without `-GitHubToken`, the script saves all values to `%TEMP%\azopt-github-secrets\` and prints step-by-step instructions to set up the environment manually at:
+Without `-GitHubToken`, the script saves all values to `/tmp/azopt-github-secrets/` and prints step-by-step instructions to set up the environment manually at:
 `https://github.com/TanishqBansal2645/AzureOptimize-Pro/settings/environments`
 
 See the **GitHub Actions Secrets and Variables Required** section at the end of this guide for the full list.
@@ -244,7 +244,7 @@ az ad app update `
   --set "spa={`"redirectUris`":[`"<STATIC_WEB_APP_URL>`",`"<STATIC_WEB_APP_URL>/`",`"http://localhost:3000`"]}"
 ```
 
-> Add both the bare URL and the trailing-slash variant. Replace `<STATIC_WEB_APP_URL>` with the exact URL from `az staticwebapp list -g rg-azureoptimize --query "[0].defaultHostname" -o tsv` prefixed with `https://`.
+> Add both the bare URL and the trailing-slash variant. Replace `<STATIC_WEB_APP_URL>` with the exact URL from `az staticwebapp list -g <resource-group> --query "[0].defaultHostname" -o tsv` prefixed with `https://`.
 
 ### Step 4 — First Login
 
@@ -293,14 +293,13 @@ Use `-Update` after:
 
 ```powershell
 .\infra\Deploy-AzureCostOptimize.ps1 `
-  -TenantId          "<TENANT_ID>" `
-  -ResourceGroupName "rg-azureoptimize" `
+  -TenantId "<TENANT_ID>" `
   -Remove
 ```
 
-**What it does:** deletes all MI role assignments across all subscriptions, then deletes the resource group and all resources inside it. Prompts `Type 'yes' to confirm` before proceeding. The Entra App Registration is **not** deleted — remove it manually from Entra ID if you want a complete cleanup.
+**What it does:** removes all MI RBAC role assignments across all subscriptions, deletes the Entra App Registration, deletes the resource group (async), and deletes the GitHub environments (`rg-*` and `default`). Prompts `Type 'yes' to confirm` before proceeding. GitHub environment deletion requires `$env:GITHUB_TOKEN` to be set — if missing, those two environments are skipped with a warning.
 
-> Deletion of the resource group is async (`--no-wait`). Check completion in the Azure Portal under Resource Groups.
+> Resource group deletion is async (`--no-wait`). Check completion in the Azure Portal under Resource Groups.
 
 ---
 
@@ -334,14 +333,14 @@ Two optional branding fields — empty by default. `COMPANY_NAME` shows nothing 
 **Direct CLI (Function App):**
 ```powershell
 az functionapp config appsettings set `
-  --name <functionapp-name> --resource-group rg-azureoptimize `
+  --name <functionapp-name> --resource-group <resource-group> `
   --settings "COMPANY_NAME=Contoso Ltd"
 ```
 
 **Direct CLI (Static Web App):**
 ```powershell
 az staticwebapp appsettings set `
-  --name <swa-name> --resource-group rg-azureoptimize `
+  --name <swa-name> --resource-group <resource-group> `
   --setting-names "NEXT_PUBLIC_DEVELOPER_NAME=Tanishq Bansal"
 ```
 
@@ -352,7 +351,7 @@ az staticwebapp appsettings set `
 Each client deployment uses a **GitHub Environment** — an isolated set of secrets and variables inside the same repo. No client can see or overwrite another client's values.
 
 All are set automatically when `-GitHubToken` is passed to the deploy script.  
-Without `-GitHubToken`, the script saves all values to `%TEMP%\azopt-github-secrets\` and prints manual setup instructions.
+Without `-GitHubToken`, the script saves all values to `/tmp/azopt-github-secrets/` and prints manual setup instructions.
 
 ### Architecture: GitHub Environments
 
@@ -397,7 +396,7 @@ To re-deploy for a specific client after a code update: run the workflows manual
 
 > PyNaCl is installed automatically by the install script whenever `-GitHubToken` is used (or `$env:GITHUB_TOKEN` is set). No manual step required.
 
-**If environment creation fails with 403:** The PAT is missing the Environments permission. The script will print a warning and the URL to create environments manually — secrets and variables will still be saved to `%TEMP%\azopt-github-secrets\`. Create the environments at `Settings → Environments`, then set secrets/variables manually using those files, and re-run the workflows.
+**If environment creation fails with 403:** The PAT is missing the Environments permission. The script will print a warning and the URL to create environments manually — secrets and variables will still be saved to `/tmp/azopt-github-secrets/`. Create the environments at `Settings → Environments`, then set secrets/variables manually using those files, and re-run the workflows.
 
 ---
 
@@ -412,7 +411,7 @@ Both symptoms have the same root cause: the Static Web App URL is not registered
 Fix — register the URL under the SPA platform:
 
 ```powershell
-$url = "https://$(az staticwebapp list -g rg-azureoptimize --query '[0].defaultHostname' -o tsv)"
+$url = "https://$(az staticwebapp list -g <resource-group> --query '[0].defaultHostname' -o tsv)"
 $appId = "<APP_CLIENT_ID>"   # or: az ad app list --filter "displayName eq 'AzureOptimize Pro'" --query "[0].appId" -o tsv
 az ad app update --id $appId `
   --set "spa={`"redirectUris`":[`"$url`",`"$url/`",`"http://localhost:3000`"]}"
@@ -426,7 +425,7 @@ The frontend `NEXT_PUBLIC_*` variables were not set before the GitHub Actions bu
 ### API deploy fails: "Could not find app 'func-azureoptimize-xxx'"
 The `AZURE_FUNCTIONAPP_NAME` repository variable is missing or incorrect. Find the correct name:
 ```powershell
-az functionapp list --resource-group rg-azureoptimize --query "[0].name" -o tsv
+az functionapp list --resource-group <resource-group> --query "[0].name" -o tsv
 ```
 Set this as the `AZURE_FUNCTIONAPP_NAME` variable in GitHub Actions and re-run the `Deploy API` workflow.
 
@@ -441,7 +440,7 @@ az role assignment list --assignee $(az ad signed-in-user show --query id -o tsv
 Function App on Consumption plan can take **15–27 minutes** on a fresh deployment cold start (the first 2 startup attempts crash before App Insights initialises; the 3rd succeeds, showing `StartupCount=3`). The deploy script retries for ~18 minutes. If still failing after that window:
 
 ```powershell
-az functionapp log tail --name <app-name> --resource-group rg-azureoptimize
+az functionapp log tail --name <app-name> --resource-group <resource-group>
 ```
 
 You can also check App Insights for startup traces:
@@ -469,7 +468,7 @@ traces | where timestamp > ago(1h) | where message startswith "Executed" | order
 **Fix:**
 1. Create a new function app with a **different name** (the new hostname gets a fresh, clean AFE routing entry):
 ```powershell
-az functionapp create --name <new-name> --resource-group rg-azureoptimize `
+az functionapp create --name <new-name> --resource-group <resource-group> `
   --consumption-plan-location eastus --runtime node --runtime-version 22 `
   --functions-version 4 --storage-account <storage-account> --os-type Windows
 ```
@@ -489,17 +488,16 @@ The `AZURE_STATIC_WEB_APPS_API_TOKEN` secret in the GitHub environment has expir
 
 ```powershell
 # Get fresh token
-$swaName = az staticwebapp list -g rg-azureoptimize --query "[0].name" -o tsv
-$token = az staticwebapp secrets list --name $swaName --resource-group rg-azureoptimize --query "properties.apiKey" -o tsv
+$swaName = az staticwebapp list -g <resource-group> --query "[0].name" -o tsv
+$token = az staticwebapp secrets list --name $swaName --resource-group <resource-group> --query "properties.apiKey" -o tsv
 
 # Encrypt and push to GitHub — update BOTH environments
-# Replace "rg-azureoptimize" with your client environment name if different
-pip install PyNaCl -q
-$clientEnv = "rg-azureoptimize"   # change to your environment name, e.g. "rg-contoso"
+pip3 install PyNaCl -q
+$clientEnv = "<resource-group>"   # e.g. "rg-azureoptimize-a188e9"
 $headers = @{Authorization="token <YOUR_PAT>"; "Accept"="application/vnd.github+json"}
 foreach ($env in @($clientEnv, "default")) {
     $key = Invoke-RestMethod -Uri "https://api.github.com/repos/TanishqBansal2645/AzureOptimize-Pro/environments/$env/secrets/public-key" -Headers $headers
-    $enc = python -c "
+    $enc = python3 -c "
 import base64; from nacl import public
 box = public.SealedBox(public.PublicKey(base64.b64decode('$($key.key)')))
 print(base64.b64encode(box.encrypt(b'$token')).decode())"
@@ -511,7 +509,7 @@ print(base64.b64encode(box.encrypt(b'$token')).decode())"
 
 Then re-run the Deploy Frontend workflow from GitHub Actions.
 
-> Always update BOTH the `rg-azureoptimize` AND `default` environments — the workflow uses `rg-azureoptimize` when triggered manually by the deploy script, and `default` on push-triggered runs.
+> Always update BOTH the client environment AND `default` — the workflow uses the client environment when triggered manually by the deploy script, and `default` on push-triggered runs.
 
 ### Pages load but show "Failed to load [data]" after login
 Symptom: login works, dashboard loads, but data cards show error messages. This means the frontend is calling the wrong API URL — typically the previous function app that has since been deleted or renamed.
@@ -522,7 +520,7 @@ Symptom: login works, dashboard loads, but data cards show error messages. This 
 1. Verify the correct API URL: `az functionapp list -g <resource-group> --query "[0].defaultHostname" -o tsv`
 2. Check the GitHub environment variable matches: `Settings → Environments → {env} → Variables → NEXT_PUBLIC_API_BASE_URL`
 3. Check the last Deploy Frontend run in GitHub Actions — if it failed, fix the failure (usually expired SWA token, see above) and redeploy
-4. Trigger redeploy: GitHub Actions → Deploy Frontend → Run workflow → `client_environment: <your-environment-name>` (e.g. `rg-azureoptimize`)
+4. Trigger redeploy: GitHub Actions → Deploy Frontend → Run workflow → `client_environment: <your-environment-name>` (e.g. `rg-azureoptimize-a188e9`)
 
 ### "Dashboard loads but shows No data"
 Cost data collects on 4-hour timers. Wait up to 4 hours, or trigger a manual refresh via the dashboard's Refresh button.
@@ -531,7 +529,7 @@ Cost data collects on 4-hour timers. Wait up to 4 hours, or trigger a manual ref
 Some tenants require Management Group scope:
 ```powershell
 $mgmtGroupId = az account management-group list --query "[0].name" -o tsv
-$miOid = az identity list --resource-group rg-azureoptimize --query "[0].principalId" -o tsv
+$miOid = az identity list --resource-group <resource-group> --query "[0].principalId" -o tsv
 az role assignment create `
   --assignee $miOid `
   --role "Cost Management Reader" `
@@ -541,7 +539,7 @@ az role assignment create `
 ### Implement button returns "Remediation failed: insufficient permissions"
 The Managed Identity is missing the Contributor role on one or more subscriptions. Re-run the deploy script with `-Update` to re-apply RBAC, or assign manually:
 ```powershell
-$miOid = az identity list --resource-group rg-azureoptimize --query "[0].principalId" -o tsv
+$miOid = az identity list --resource-group <resource-group> --query "[0].principalId" -o tsv
 $subId = "<SUBSCRIPTION_ID>"
 az role assignment create `
   --assignee $miOid `
@@ -555,9 +553,9 @@ az role assignment create `
 
 | Value | Where to find |
 |-------|---------------|
-| Dashboard URL | Deploy script output / `az staticwebapp list -g rg-azureoptimize --query "[0].defaultHostname" -o tsv` |
+| Dashboard URL | Deploy script output / `az staticwebapp list -g <resource-group> --query "[0].defaultHostname" -o tsv` |
 | API URL | `https://<functionapp-name>.azurewebsites.net/api` |
-| Resource Group | `rg-azureoptimize` (default) |
+| Resource Group | Auto-derived: `rg-azureoptimize-<tenant-suffix>` (printed by deploy script) |
 | Tenant ID | Passed to deploy script |
 | App Client ID | Output of Setup-Entra.ps1 |
 | Admin Object ID | Output of Setup-Entra.ps1 |

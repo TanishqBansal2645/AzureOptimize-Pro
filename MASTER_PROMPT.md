@@ -484,7 +484,7 @@ param(
   [Parameter(Mandatory)] [string] $AdminPrincipalId,
   [Parameter(Mandatory)] [string] $AppClientId,
   [string] $Location = "eastus",
-  [string] $ResourceGroupName = "rg-azureoptimize",
+  [string] $ResourceGroupName = "",  # auto-derived from tenant ID if empty
   [switch] $Update,
   [switch] $Remove
 )

@@ -19,16 +19,18 @@
     Skips Entra setup and infrastructure re-deployment. Safe to run at any time.
 
 .PARAMETER Remove
-    Delete all Azure resources. Prompts for confirmation before proceeding.
-    Does NOT delete the Entra App Registration  -  remove that manually if needed.
+    Fully decommissions the deployment: removes all RBAC, deletes the Entra App
+    Registration, deletes the resource group, and deletes GitHub environments.
+    Prompts for confirmation before proceeding. Requires $env:GITHUB_TOKEN to
+    be set for GitHub environment cleanup (warns and skips if missing).
 
 .PARAMETER GitHubToken
     GitHub Personal Access Token to automatically configure GitHub Actions secrets,
-    environment variables, and trigger the first deployment.
+    environment variables, and trigger the first deployment. Also used during -Remove
+    to delete GitHub environments.
     Required scopes: repo (classic PAT) or Actions read/write + Environments (fine-grained).
     PyNaCl is installed automatically when this token is provided.
     If not passed, the script checks the GITHUB_TOKEN environment variable.
-    Only used during new installs (ignored for -Update and -Remove).
 
 .PARAMETER CompanyName
     Optional company/client name shown in the header subtitle only.
@@ -43,7 +45,9 @@
     Azure region for resource deployment. Default: eastus
 
 .PARAMETER ResourceGroupName
-    Resource group name. Default: rg-azureoptimize
+    Resource group name. Auto-derived from the last 6 chars of the tenant ID if
+    not specified (e.g. tenant 98b65c17-... -> rg-azureoptimize-a188e9).
+    Each client tenant produces a unique, deterministic name. Override only if needed.
 
 .PARAMETER SkipTests
     Skip smoke tests after deployment.
@@ -113,16 +117,16 @@ try {
     Write-Host "  Tenant: $TenantId" -ForegroundColor Green
     Write-Host "  Subscription: $($account.name)" -ForegroundColor Green
 }
+catch {
+    Write-Host "  Not logged in to Azure. Run 'az login' first." -ForegroundColor Red
+    exit 1
+}
 
 if (-not $ResourceGroupName) {
     $tenantSuffix    = $TenantId.Replace("-", "").Substring(26, 6)
     $ResourceGroupName = "rg-azureoptimize-$tenantSuffix"
 }
 Write-Host "  Resource group: $ResourceGroupName" -ForegroundColor Green
-catch {
-    Write-Host "  Not logged in to Azure. Run 'az login' first." -ForegroundColor Red
-    exit 1
-}
 
 # --- Clone / update repository ------------------------------------------------
 
