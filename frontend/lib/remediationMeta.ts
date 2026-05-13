@@ -134,16 +134,17 @@ export function getRiskProfile(
       if (resourceType === 'Premium Disk') {
         return {
           risk: 'Medium',
-          downtime: 'Brief I/O pause if attached',
+          downtime: '2–5 min if VM is running (VM is stopped then restarted automatically)',
           reversible: true,
           recommendedTime: 'Off-hours recommended',
           automated: true,
           actionVerb: 'Downgrade',
           impacts: [
             'Disk SKU will change from Premium SSD to Standard SSD',
-            'IOPS and throughput limits will be reduced',
-            'If attached to a running VM, a brief I/O interruption may occur',
-            'Performance should be verified after downgrade',
+            'IOPS and throughput caps will be lower — verify the workload fits within Standard SSD limits before proceeding',
+            'If attached to a running VM: the VM will be automatically deallocated (stopped), SKU will be changed, then the VM will be restarted — expect 2–5 minutes of downtime',
+            'If the VM is already stopped or the disk is unattached: no downtime, change is instant',
+            'Reversible: can be upgraded back to Premium SSD at any time using the same process',
           ],
         };
       }

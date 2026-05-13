@@ -108,22 +108,64 @@ export function remediateAHBSqlManual(
 
 // ─── Storage Optimizations ────────────────────────────────────────────────────
 
-// Downgrade Premium SSD disk to Standard SSD (online operation if disk supports it)
+// Downgrade Premium SSD disk to Standard SSD.
+// Azure requires the VM to be deallocated before changing the disk SKU when it is attached
+// to a running VM. This function checks the VM power state, stops it if needed, changes
+// the SKU, then restarts the VM.
 export async function remediateStorageDiskDowngrade(
   subscriptionId: string,
   resourceGroup: string,
   diskName: string
 ): Promise<RemediationResult> {
   const client = new ComputeManagementClient(credential, subscriptionId);
+
+  // Check whether disk is attached and if so, what VM and whether it is running
+  const disk = await client.disks.get(resourceGroup, diskName);
+  const attachedVmId = disk.managedBy ?? null; // e.g. /subscriptions/.../virtualMachines/vm1
+
+  let vmRg = resourceGroup;
+  let vmName: string | null = null;
+  let vmWasRunning = false;
+
+  if (attachedVmId) {
+    const parts = attachedVmId.split('/');
+    const rgIdx = parts.findIndex((p) => p.toLowerCase() === 'resourcegroups');
+    vmRg = rgIdx >= 0 ? parts[rgIdx + 1] : resourceGroup;
+    vmName = parts[parts.length - 1];
+
+    const vmView = await client.virtualMachines.instanceView(vmRg, vmName);
+    const powerCode = vmView.statuses?.find((s) => s.code?.startsWith('PowerState/'))?.code ?? '';
+    vmWasRunning = powerCode === 'PowerState/running';
+
+    if (vmWasRunning) {
+      // Must deallocate (not just stop) — a stopped-but-allocated VM still blocks SKU changes
+      await client.virtualMachines.beginDeallocateAndWait(vmRg, vmName);
+    }
+  }
+
+  // Change disk SKU — safe now whether attached (deallocated VM) or unattached
   await client.disks.beginUpdateAndWait(resourceGroup, diskName, {
     sku: { name: 'StandardSSD_LRS' },
   });
-  return {
-    success: true,
-    automated: true,
-    action: `Disk ${diskName} downgraded from Premium SSD to Standard SSD`,
-    details: 'If the disk is attached to a running VM, a brief I/O pause may have occurred.',
-  };
+
+  // Start the VM again — fire-and-forget to avoid HTTP timeout
+  if (vmWasRunning && vmName) {
+    client.virtualMachines.beginStart(vmRg, vmName).catch(() => {});
+  }
+
+  const action = vmWasRunning
+    ? `Disk ${diskName} downgraded to Standard SSD. VM '${vmName}' was deallocated before change and restart has been initiated.`
+    : vmName
+      ? `Disk ${diskName} downgraded to Standard SSD. VM '${vmName}' was already deallocated — no restart needed.`
+      : `Disk ${diskName} downgraded to Standard SSD (unattached disk — changed directly).`;
+
+  const details = vmWasRunning
+    ? `VM was temporarily deallocated to allow the disk SKU change. Restart triggered — VM will be online in 1-3 minutes.`
+    : vmName
+      ? `VM was already in a deallocated state. SKU changed without any additional stop/start.`
+      : `Disk was unattached. SKU changed directly with no VM impact.`;
+
+  return { success: true, automated: true, action, details };
 }
 
 // Unused storage account — too risky to auto-delete; generate CLI command

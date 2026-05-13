@@ -188,7 +188,11 @@ export async function findWindowsVMsWithoutAHB(
     Resources
     | where type =~ 'microsoft.compute/virtualmachines'
     | where properties.storageProfile.osDisk.osType =~ 'Windows'
-    | where isnull(properties.licenseType) or properties.licenseType !in ('Windows_Server', 'Windows_Client')
+          or isnotnull(properties.osProfile.windowsConfiguration)
+    | where isnull(properties.licenseType)
+          or properties.licenseType =~ ''
+          or properties.licenseType =~ 'None'
+          or properties.licenseType !in~ ('Windows_Server', 'Windows_Client')
     | project id, name, resourceGroup, subscriptionId, location,
               sku=properties.hardwareProfile.vmSize
   `;
