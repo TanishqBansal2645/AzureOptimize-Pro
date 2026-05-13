@@ -6,7 +6,7 @@
     Handles all three deployment lifecycle operations from a single script:
 
     NEW INSTALL (default):
-        irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
+        & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1)))
 
     UPDATE (re-apply RBAC, verify health, update branding):
         & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Update
@@ -295,6 +295,9 @@ Write-Host "    Installation complete!" -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Future operations (run from Cloud Shell):" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  FRESH INSTALL (new client):" -ForegroundColor White
+Write-Host "  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1)))" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  UPDATE (after code changes or RBAC drift):" -ForegroundColor White
 Write-Host "  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Update" -ForegroundColor Gray

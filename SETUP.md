@@ -15,7 +15,7 @@ Run these from the **client's Azure Cloud Shell**. Set the token once per sessio
 $env:GITHUB_TOKEN = "ghp_..."
 
 # 2. Fresh install (Entra + infrastructure + GitHub Actions setup + first deploy)
-irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1)))
 
 # 3. Update (re-apply RBAC, verify health — run after code changes or role drift)
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Update
@@ -49,14 +49,14 @@ All three lifecycle operations are single commands run from the **client's Azure
 
 ### New Install
 ```powershell
-irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1)))
 ```
-Creates the Entra App Registration and provisions all Azure infrastructure. Takes ~8 minutes. Without `-GitHubToken` it prints manual GitHub setup instructions and exits — you then set up GitHub Actions and run the workflows yourself.
+Creates the Entra App Registration and provisions all Azure infrastructure. Takes ~8 minutes. Without a GitHub token it prints manual GitHub setup instructions and exits — you then set up GitHub Actions and run the workflows yourself.
 
 To also configure GitHub automatically and trigger the first full deployment (recommended), set your GitHub PAT as an environment variable first — this avoids typing it in the command and is safe because it stays in memory, not in a file:
 ```powershell
 $env:GITHUB_TOKEN = "ghp_..."   # set once per Cloud Shell session
-irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1)))
 ```
 The script reads `$env:GITHUB_TOKEN` automatically and installs PyNaCl on its own — no manual setup needed.
 
