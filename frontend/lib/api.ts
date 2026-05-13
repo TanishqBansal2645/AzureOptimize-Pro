@@ -256,6 +256,7 @@ export interface DatabaseItem {
   avgUtilization: number;
   recommendation: string;
   estimatedMonthlySaving: number;
+  details?: Record<string, unknown>;
   scannedAt: string;
   status: string;
 }

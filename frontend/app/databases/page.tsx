@@ -37,6 +37,7 @@ export default function DatabasesPage() {
       subscriptionId: item.subscriptionId,
       monthlySaving: item.estimatedMonthlySaving,
       recommendation: item.recommendation,
+      details: item.details,
     });
   };
 

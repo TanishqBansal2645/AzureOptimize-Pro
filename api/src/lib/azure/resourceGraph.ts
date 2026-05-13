@@ -164,8 +164,9 @@ export async function findIdleLoadBalancers(
     Resources
     | where type =~ 'microsoft.network/loadbalancers'
     | where array_length(properties.backendAddressPools) == 0
-      or (properties.backendAddressPools[0].properties.backendIPConfigurations | isempty)
-    | where sku.tier !in ('Basic')
+      or isnull(properties.backendAddressPools[0].properties.backendIPConfigurations)
+      or array_length(properties.backendAddressPools[0].properties.backendIPConfigurations) == 0
+    | where sku.name !in~ ('Basic')
     | project id, name, resourceGroup, subscriptionId, location, sku=sku.name
   `;
   const results = await runResourceGraphQuery(subscriptionIds, query);
