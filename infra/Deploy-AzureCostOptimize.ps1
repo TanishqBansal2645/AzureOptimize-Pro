@@ -417,6 +417,27 @@ if (-not $Update) {
         $script:functionAppName = ($script:functionAppUrl -replace "https://", "" -replace ".azurewebsites.net", "")
 
         Write-Success "Infrastructure deployed"
+
+        # Automatically update Entra App SPA redirect URI now that dashboard URL is known.
+        # MUST use Graph API / --set spa= (NOT --web-redirect-uris which sets the wrong platform
+        # and causes a silent redirect loop after login even though AADSTS50011 is resolved).
+        if ($AppClientId -and $script:dashboardUrl) {
+            Write-Host "  Updating Entra App SPA redirect URIs..." -ForegroundColor Gray
+            try {
+                $graphToken = (az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>$null)
+                $graphHeaders = @{ Authorization = "Bearer $graphToken"; "Content-Type" = "application/json" }
+                $spaBody = @{ spa = @{ redirectUris = @($script:dashboardUrl, "$($script:dashboardUrl)/", "http://localhost:3000") } } | ConvertTo-Json -Depth 5
+                Invoke-RestMethod -Method PATCH `
+                    -Uri "https://graph.microsoft.com/v1.0/applications(appId='$AppClientId')" `
+                    -Headers $graphHeaders -Body $spaBody | Out-Null
+                Write-Success "SPA redirect URI set to $($script:dashboardUrl)"
+            }
+            catch {
+                Write-Warn "Could not auto-update redirect URI: $_"
+                Write-Host "  Run manually after deployment:" -ForegroundColor Yellow
+                Write-Host "  .\Setup-Entra.ps1 -TenantId `"$TenantId`" -AppClientId `"$AppClientId`" -DashboardUrl `"$($script:dashboardUrl)`" -UpdateRedirectUri" -ForegroundColor Gray
+            }
+        }
     }
     catch {
         Write-Fail "Bicep deployment failed: $_"
@@ -789,8 +810,9 @@ Write-Host "  Key Vault URI  : $($script:keyVaultUri)" -ForegroundColor White
 Write-Host ""
 Write-Host "  Next steps:" -ForegroundColor Cyan
 if (-not $Update) {
-    Write-Host "  1. Update Entra App redirect URI:" -ForegroundColor White
-    Write-Host "     az ad app update --id $AppClientId --web-redirect-uris 'http://localhost:3000' '$($script:dashboardUrl)'" -ForegroundColor Gray
+    Write-Host "  1. Entra App SPA redirect URI was updated automatically." -ForegroundColor White
+    Write-Host "     If login fails with AADSTS50011 or loops back to login, run:" -ForegroundColor Gray
+    Write-Host "     .\Setup-Entra.ps1 -TenantId `"$TenantId`" -AppClientId `"$AppClientId`" -DashboardUrl `"$($script:dashboardUrl)`" -UpdateRedirectUri" -ForegroundColor Gray
 }
 Write-Host "  2. Open the dashboard and sign in with your Microsoft account" -ForegroundColor White
 Write-Host "  3. First cost data appears within 4 hours (timer-triggered)" -ForegroundColor White

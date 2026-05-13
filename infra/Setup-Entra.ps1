@@ -73,7 +73,7 @@ if ($UpdateRedirectUri) {
     Write-Host "  Updating SPA redirect URIs for app $AppClientId..." -ForegroundColor Cyan
     $graphToken = (az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>$null)
     $graphHeaders = @{ Authorization = "Bearer $graphToken"; "Content-Type" = "application/json" }
-    $spaBody = @{ spa = @{ redirectUris = @($DashboardUrl, "http://localhost:3000") } } | ConvertTo-Json -Depth 5
+    $spaBody = @{ spa = @{ redirectUris = @($DashboardUrl, "$DashboardUrl/", "http://localhost:3000") } } | ConvertTo-Json -Depth 5
     Invoke-RestMethod -Method PATCH `
         -Uri "https://graph.microsoft.com/v1.0/applications(appId='$AppClientId')" `
         -Headers $graphHeaders -Body $spaBody | Out-Null

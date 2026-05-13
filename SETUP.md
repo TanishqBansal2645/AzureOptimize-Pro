@@ -62,7 +62,7 @@ All three commands auto-detect the tenant from your active Azure login. No need 
 
 ```powershell
 az --version     # 2.50+
-node --version   # v20.x
+node --version   # v22.x
 pwsh --version   # 7+  (Windows PowerShell 5.1 also works)
 ```
 
@@ -116,7 +116,7 @@ Both branding fields are always initialised (empty by default, with fallbacks) â
 
 | Param | Sets | Shown on | Fallback if empty |
 |-------|------|---------|------------------|
-| `-CompanyName` | `COMPANY_NAME` (Function App) | Sidebar + header | Azure AD tenant name |
+| `-CompanyName` | `COMPANY_NAME` (Function App) | Header subtitle only | *(not shown)* |
 | `-DeveloperName` | `NEXT_PUBLIC_DEVELOPER_NAME` (Static Web App) | Login page footer | `"Tanishq Bansal"` |
 
 #### Optional: Automate GitHub secrets and variables
@@ -230,7 +230,7 @@ Two optional branding fields are initialised empty on every fresh deploy and hav
 
 | Setting | Where shown | Deploy param | Fallback |
 |---------|-------------|-------------|---------|
-| `COMPANY_NAME` (Function App) | Sidebar + header subtitle | `-CompanyName` | Azure AD tenant display name |
+| `COMPANY_NAME` (Function App) | Header subtitle only (sidebar always shows "AzureOptimize Pro") | `-CompanyName` | *(not shown if empty)* |
 | `NEXT_PUBLIC_DEVELOPER_NAME` (Static Web App) | Login page footer | `-DeveloperName` | `"Tanishq Bansal"` |
 
 **Set during deployment:**
