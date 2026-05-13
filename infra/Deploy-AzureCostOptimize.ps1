@@ -195,7 +195,9 @@ import sys, json, base64, urllib.request
 from nacl.public import SealedBox, PublicKey
 token, repo, name = sys.argv[1], sys.argv[2], sys.argv[3]
 env_name = sys.argv[4] if len(sys.argv) > 4 else ""
-value = sys.stdin.buffer.read()
+value_file = sys.argv[5]
+with open(value_file, 'rb') as f:
+    value = f.read()
 if env_name:
     pk_url = f"https://api.github.com/repos/{repo}/environments/{env_name}/secrets/public-key"
     secret_url = f"https://api.github.com/repos/{repo}/environments/{env_name}/secrets/{name}"
@@ -214,18 +216,24 @@ urllib.request.urlopen(urllib.request.Request(
              "User-Agent": "AzureOptimize-Deploy"}))
 '@
 
-    $pyScript = Join-Path $env:TEMP "azopt_gh_secret.py"
+    $pyScript   = Join-Path $env:TEMP "azopt_gh_secret.py"
+    $valueFile  = Join-Path $env:TEMP "azopt_gh_value.bin"
     Set-Content -Path $pyScript -Value $pythonCode -Encoding utf8
+    # Write value as real bytes to a temp file - avoids PowerShell pipe byte corruption
+    [System.IO.File]::WriteAllBytes($valueFile, [System.Text.Encoding]::UTF8.GetBytes($Value))
 
     try {
-        $valueBytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
-        $result = $valueBytes | python $pyScript $Token $Repo $Name $EnvName 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            throw "Exit code $LASTEXITCODE`: $result"
+        $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $result = python $pyScript $Token $Repo $Name $EnvName $valueFile 2>&1
+        $pyEc = $LASTEXITCODE
+        $ErrorActionPreference = $prevEAP
+        if ($pyEc -ne 0) {
+            throw "Exit code $pyEc`: $result"
         }
     }
     finally {
-        Remove-Item $pyScript -Force -ErrorAction SilentlyContinue
+        Remove-Item $pyScript   -Force -ErrorAction SilentlyContinue
+        Remove-Item $valueFile  -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -253,11 +261,11 @@ function Add-RoleAssignment {
     if ($ec -eq 0) { return $true }
 
     $msg = ($output | Out-String).Trim()
-    # Idempotent success — assignment already exists
+    # Idempotent success - assignment already exists
     if ($msg -match 'RoleAssignmentExists') { return $true }
-    # Subscription inaccessible from current auth context — caller should skip entire sub
+    # Subscription inaccessible from current auth context - caller should skip entire sub
     if ($msg -match 'SubscriptionNotFound' -or $msg -match 'AuthorizationFailed' -or $msg -match 'InvalidAuthenticationTokenTenant') { return $false }
-    # Role doesn't exist on this subscription type (e.g. Cost Management on VS subs) — skip this role only
+    # Role doesn't exist on this subscription type (e.g. Cost Management on VS subs) - skip this role only
     if ($msg -match 'RoleDefinitionDoesNotExist') { return $true }
     throw $msg
 }
@@ -273,7 +281,7 @@ function Remove-MIRoleAssignments {
     $raw  = az rest --method GET --url $url 2>&1
     $ec   = $LASTEXITCODE
     $ErrorActionPreference = $prev
-    if ($ec -ne 0) { return }   # inaccessible subscription — nothing to clean up
+    if ($ec -ne 0) { return }   # inaccessible subscription - nothing to clean up
     $response = ($raw | Where-Object { $_ -notmatch '^WARNING' } | Out-String | ConvertFrom-Json -ErrorAction SilentlyContinue)
     if ($response -and $response.value) {
         foreach ($ra in $response.value) {
@@ -289,36 +297,99 @@ function Remove-MIRoleAssignments {
 
 if ($Remove) {
     Show-Banner
-    Write-Host "  REMOVE MODE - This will delete all resources!" -ForegroundColor Red
+    Write-Host "  REMOVE MODE" -ForegroundColor Red
+    Write-Host "  Permanently deletes all Azure resources in '$ResourceGroupName'." -ForegroundColor Red
+    Write-Host "  NOTE: The Entra App Registration is NOT deleted by this script." -ForegroundColor Yellow
+    Write-Host ""
+
     if (-not $Force) {
-        $confirm = Read-Host "Type 'yes' to confirm deletion of resource group '$ResourceGroupName'"
+        $confirm = Read-Host "  Type 'yes' to confirm"
         if ($confirm -ne 'yes') {
-            Write-Host "Deletion cancelled." -ForegroundColor Yellow
+            Write-Host "`n  Deletion cancelled. No changes made." -ForegroundColor Yellow
             exit 0
         }
     }
     else {
-        Write-Host "  -Force specified: skipping confirmation prompt" -ForegroundColor Yellow
+        Write-Warn "-Force specified: skipping confirmation prompt"
     }
 
-    Write-Host "`nLogging in to tenant $TenantId..." -ForegroundColor Cyan
-    $currentTenant = az account show --query "tenantId" -o tsv 2>$null
-    if ($currentTenant -ne $TenantId) { az login --tenant $TenantId --output none }
+    # [1/3] Login
+    Write-Step 1 3 "Logging in to tenant $TenantId"
+    try {
+        $currentTenant = az account show --query "tenantId" -o tsv 2>$null
+        if ($currentTenant -ne $TenantId) { az login --tenant $TenantId --output none }
+        Write-Success "Logged in (tenant: $TenantId)"
+    }
+    catch {
+        Write-Fail "Login failed: $_"
+        exit 1
+    }
 
-    Write-Host "Removing role assignments for Managed Identity..." -ForegroundColor Cyan
-    $subscriptions = (az account list --output json --only-show-errors | ConvertFrom-Json |
-        Where-Object { $_.tenantId -eq $TenantId }).id
-    $miPrincipalId = (az identity list --resource-group $ResourceGroupName --output json 2>$null |
-        ConvertFrom-Json | Where-Object { $_.name -like 'mi-azureoptimize*' }).principalId
-    if ($miPrincipalId) {
-        foreach ($subId in ($subscriptions -split "`n" | Where-Object { $_.Trim() })) {
-            Remove-MIRoleAssignments -PrincipalId $miPrincipalId.Trim() -SubscriptionId $subId.Trim()
+    # [2/3] Remove RBAC
+    Write-Step 2 3 "Removing Managed Identity role assignments from all subscriptions"
+    try {
+        $subList       = az account list --output json --only-show-errors | ConvertFrom-Json
+        $subscriptions = @($subList | Where-Object { $_.tenantId -eq $TenantId } | Select-Object -ExpandProperty id)
+        Write-Host "  Found $($subscriptions.Count) subscription(s) in tenant $TenantId" -ForegroundColor Gray
+
+        $miJson        = az identity list --resource-group $ResourceGroupName --output json 2>$null
+        $miObj         = $miJson | ConvertFrom-Json -ErrorAction SilentlyContinue |
+                         Where-Object { $_.name -like 'mi-azureoptimize*' } | Select-Object -First 1
+        $miPrincipalId = if ($miObj) { $miObj.principalId } else { $null }
+
+        if ($miPrincipalId) {
+            Write-Host "  Managed Identity : $($miObj.name)" -ForegroundColor Gray
+            Write-Host "  Principal ID     : $miPrincipalId" -ForegroundColor Gray
+            $cleanedCount = 0
+            foreach ($subId in $subscriptions) {
+                if (-not $subId -or -not $subId.Trim()) { continue }
+                Write-Host "    Removing from subscription $($subId.Trim())..." -ForegroundColor Gray
+                Remove-MIRoleAssignments -PrincipalId $miPrincipalId -SubscriptionId $subId.Trim()
+                $cleanedCount++
+            }
+            Write-Success "Role assignments removed from $cleanedCount subscription(s)"
+        }
+        else {
+            Write-Warn "Managed Identity not found in '$ResourceGroupName' - RBAC cleanup skipped"
+            Write-Host "  (This is OK if the resource group was never fully deployed)" -ForegroundColor Gray
         }
     }
+    catch {
+        Write-Warn "RBAC cleanup error: $_ - continuing with resource group deletion"
+    }
 
-    Write-Host "Deleting resource group '$ResourceGroupName'..." -ForegroundColor Cyan
-    az group delete --name $ResourceGroupName --yes --no-wait
-    Write-Success "Resource group deletion initiated (may take a few minutes)"
+    # [3/3] Delete resource group
+    Write-Step 3 3 "Deleting resource group '$ResourceGroupName'"
+    $prevEAP   = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $delOutput = az group delete --name $ResourceGroupName --yes --no-wait 2>&1
+    $delEc     = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+
+    if ($delEc -eq 0) {
+        Write-Success "Resource group deletion initiated (async - monitor in Azure Portal > Resource Groups)"
+    }
+    elseif (($delOutput | Out-String) -match "ResourceGroupNotFound|could not be found|was not found") {
+        Write-Warn "Resource group '$ResourceGroupName' was not found - already deleted or never created"
+    }
+    else {
+        Write-Fail "az group delete failed (exit code: $delEc)"
+        Write-Host "  $($delOutput | Out-String)" -ForegroundColor Red
+        exit 1
+    }
+
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Green
+    Write-Host "    Decommission complete!" -ForegroundColor Green
+    Write-Host "================================================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  Cleanup checklist:" -ForegroundColor Cyan
+    Write-Host "  [x] Managed Identity role assignments removed from all subscriptions" -ForegroundColor Green
+    Write-Host "  [x] Resource group '$ResourceGroupName' deletion initiated" -ForegroundColor Green
+    Write-Host "  [ ] Entra App Registration 'AzureOptimize Pro' - delete manually if needed:" -ForegroundColor Yellow
+    Write-Host "      Portal -> Microsoft Entra ID -> App Registrations -> AzureOptimize Pro -> Delete" -ForegroundColor Gray
+    Write-Host "  [ ] GitHub environments '$ResourceGroupName' + 'default' - delete manually if needed:" -ForegroundColor Yellow
+    Write-Host "      https://github.com/TanishqBansal2645/AzureOptimize-Pro/settings/environments" -ForegroundColor Gray
+    Write-Host ""
     exit 0
 }
 
@@ -327,10 +398,11 @@ if ($Remove) {
 Show-Banner
 Write-Host "Running pre-flight checks..." -ForegroundColor Cyan
 
-$tools = @{
-    "az"   = "Azure CLI"
-    "node" = "Node.js"
-    "npm"  = "npm"
+# Update mode only needs az; full deploy also needs node + npm
+$tools = if ($Update) {
+    @{ "az" = "Azure CLI" }
+} else {
+    @{ "az" = "Azure CLI"; "node" = "Node.js"; "npm" = "npm" }
 }
 
 foreach ($tool in $tools.Keys) {
@@ -340,7 +412,7 @@ foreach ($tool in $tools.Keys) {
         exit 1
     }
 }
-Write-Success "All required tools found (az, node, npm)"
+Write-Success "Required tools found ($($tools.Keys -join ', '))"
 
 $scriptDir = $PSScriptRoot
 $projectRoot = Split-Path $scriptDir -Parent
@@ -457,7 +529,7 @@ if (-not $Update) {
                 $scope = "/subscriptions/$subId"
                 # Reader  -  resource inspection across all subscriptions
                 $ok = Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "acdd72a7-3385-48ef-bd42-f606fba81ae7" -Scope $scope
-                if ($ok -eq $false) { continue }   # inaccessible subscription — skip silently
+                if ($ok -eq $false) { continue }   # inaccessible subscription - skip silently
                 # Cost Management Reader  -  billing and cost data
                 Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "72fafb9e-0641-4937-9268-a91bfd8191a6" -Scope $scope | Out-Null
                 # Monitoring Reader  -  Azure Monitor metrics
@@ -521,7 +593,7 @@ else {
     Write-Step 3 $totalSteps "Re-applying role assignments on all subscriptions"
     try {
         $miPrincipalId = (az identity list --resource-group $ResourceGroupName --output json 2>$null |
-            ConvertFrom-Json | Where-Object { $_.name -like 'mi-azureoptimize*' }).principalId
+            ConvertFrom-Json | Where-Object { $_.name -like 'mi-azureoptimize*' } | Select-Object -First 1).principalId
         if ($miPrincipalId) {
             $script:managedIdentityPrincipalId = $miPrincipalId.Trim()
             $subscriptions = (az account list --output json --only-show-errors | ConvertFrom-Json |
@@ -533,7 +605,7 @@ else {
                     $miId  = $script:managedIdentityPrincipalId
                     $scope = "/subscriptions/$subId"
                     $ok = Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "acdd72a7-3385-48ef-bd42-f606fba81ae7" -Scope $scope
-                    if ($ok -eq $false) { continue }   # inaccessible subscription — skip silently
+                    if ($ok -eq $false) { continue }   # inaccessible subscription - skip silently
                     Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "72fafb9e-0641-4937-9268-a91bfd8191a6" -Scope $scope | Out-Null
                     Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "43d0d8ad-25c7-4714-9337-8ba259a9fe05" -Scope $scope | Out-Null
                     Add-RoleAssignment -PrincipalId $miId -RoleDefinitionId "b24988ac-6180-42a0-ab88-20f7382dd24c" -Scope $scope | Out-Null
@@ -597,7 +669,8 @@ else {
 
 $swaName = az staticwebapp list --resource-group $ResourceGroupName --query "[0].name" -o tsv
 $deployToken = az staticwebapp secrets list --name $swaName --resource-group $ResourceGroupName --query "properties.apiKey" -o tsv
-$publishProfile = az functionapp deployment list-publishing-profiles --name $script:functionAppName --resource-group $ResourceGroupName --xml
+# Join into a single string - az returns a string[] (one element per line) in PowerShell
+$publishProfile = (az functionapp deployment list-publishing-profiles --name $script:functionAppName --resource-group $ResourceGroupName --xml) -join "`n"
 
 if ($GitHubToken) {
     $ghHeaders = @{
@@ -834,4 +907,6 @@ if (-not $Update) {
 }
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
+
+exit 0
 

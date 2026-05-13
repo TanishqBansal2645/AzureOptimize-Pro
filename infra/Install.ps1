@@ -26,7 +26,8 @@
     GitHub Personal Access Token to automatically configure GitHub Actions secrets,
     environment variables, and trigger the first deployment.
     Required scopes: repo (classic PAT) or Actions read/write + Environments (fine-grained).
-    Install PyNaCl first: pip install PyNaCl
+    PyNaCl is installed automatically when this token is provided.
+    If not passed, the script checks the GITHUB_TOKEN environment variable.
     Only used during new installs (ignored for -Update and -Remove).
 
 .PARAMETER CompanyName
@@ -64,6 +65,11 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+# Resolve GitHubToken from environment variable if not passed as a parameter
+if (-not $GitHubToken -and $env:GITHUB_TOKEN) {
+    $GitHubToken = $env:GITHUB_TOKEN
+}
+
 # --- Banner -------------------------------------------------------------------
 
 Write-Host ""
@@ -79,7 +85,7 @@ Write-Host ""
 
 Write-Host "Checking prerequisites..." -ForegroundColor Cyan
 
-$requiredTools = if ($Remove) { @("az", "git") } else { @("az", "node", "npm", "git") }
+$requiredTools = if ($Remove -or $Update) { @("az", "git") } else { @("az", "node", "npm", "git") }
 $missing = @()
 foreach ($tool in $requiredTools) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { $missing += $tool }
@@ -117,15 +123,23 @@ Write-Host "`nSetting up repository at $installDir..." -ForegroundColor Cyan
 if (Test-Path (Join-Path $installDir ".git")) {
     Write-Host "  Pulling latest changes..." -ForegroundColor Gray
     Push-Location $installDir
-    git fetch origin $Branch --quiet
-    git checkout $Branch --quiet
-    git reset --hard "origin/$Branch" --quiet
-    Pop-Location
+    try {
+        git fetch origin $Branch --quiet
+        git checkout $Branch --quiet
+        git reset --hard "origin/$Branch" --quiet
+    }
+    finally {
+        Pop-Location
+    }
     Write-Host "  Repository updated." -ForegroundColor Green
 }
 else {
     Write-Host "  Cloning repository..." -ForegroundColor Gray
     git clone --branch $Branch --single-branch $RepoUrl $installDir --quiet
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  Failed to clone repository. Check network access and repo URL." -ForegroundColor Red
+        exit 1
+    }
     Write-Host "  Repository cloned." -ForegroundColor Green
 }
 
@@ -144,11 +158,12 @@ if ($Remove) {
     Push-Location $infraPath
     try {
         & $deployScript -TenantId $TenantId -ResourceGroupName $ResourceGroupName -Remove
+        $removeEc = $LASTEXITCODE
     }
     finally {
         Pop-Location
     }
-    exit 0
+    exit $removeEc
 }
 
 # --- UPDATE mode --------------------------------------------------------------
@@ -172,14 +187,30 @@ if ($Update) {
     Push-Location $infraPath
     try {
         & $deployScript @deployArgs
+        $updateEc = $LASTEXITCODE
     }
     finally {
         Pop-Location
     }
-    exit 0
+    exit $updateEc
 }
 
 # --- NEW INSTALL mode ---------------------------------------------------------
+
+# Auto-install PyNaCl when a GitHub token is provided (needed for secret encryption)
+if ($GitHubToken) {
+    Write-Host "`nInstalling PyNaCl for GitHub secret encryption..." -ForegroundColor Cyan
+    $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    pip install PyNaCl --quiet 2>&1 | Out-Null
+    $pipEc = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+    if ($pipEc -ne 0) {
+        Write-Host "  Warning: Could not install PyNaCl. GitHub secret configuration may fail." -ForegroundColor Yellow
+        Write-Host "  Run manually if needed: pip install PyNaCl" -ForegroundColor Yellow
+    } else {
+        Write-Host "  PyNaCl ready." -ForegroundColor Green
+    }
+}
 
 Write-Host "`n================================================================" -ForegroundColor Cyan
 Write-Host "  STEP 1 of 2: Entra App Registration" -ForegroundColor Cyan
@@ -192,9 +223,12 @@ if (-not (Test-Path $entraScript)) {
 }
 
 Write-Host "  Running Setup-Entra.ps1..." -ForegroundColor Gray
-$entraOutput = & $entraScript -TenantId $TenantId 2>&1
+$entraOutput   = & $entraScript -TenantId $TenantId 2>&1
 $entraExitCode = $LASTEXITCODE
-$entraOutput | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
+
+# Print captured output (az stderr / warnings) but hide the machine-parseable ##RESULT markers
+$entraOutput | Where-Object { $_ -notmatch '^##RESULT' } |
+    ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
 
 if ($entraExitCode -ne 0) {
     Write-Host ""
@@ -204,6 +238,14 @@ if ($entraExitCode -ne 0) {
 
 $AppClientId      = ($entraOutput | Select-String "##RESULT AppClientId=([0-9a-f-]+)"      | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
 $AdminPrincipalId = ($entraOutput | Select-String "##RESULT AdminPrincipalId=([0-9a-f-]+)" | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -Last 1
+
+if (-not $AppClientId) {
+    Write-Host ""
+    Write-Host "  Could not read App Client ID from Setup-Entra.ps1 output." -ForegroundColor Red
+    Write-Host "  This usually means the script's output was intercepted or the ##RESULT markers were missing." -ForegroundColor Yellow
+    Write-Host "  Run Setup-Entra.ps1 manually and pass -AppClientId to Deploy-AzureCostOptimize.ps1." -ForegroundColor Yellow
+    exit 1
+}
 
 if (-not $AdminPrincipalId) {
     $AdminPrincipalId = az ad signed-in-user show --query "id" -o tsv 2>$null
@@ -231,9 +273,18 @@ if ($SkipTests)     { $deployArgs['SkipTests']     = $true }
 Push-Location $infraPath
 try {
     & $deployScript @deployArgs
+    $deployEc = $LASTEXITCODE
 }
 finally {
     Pop-Location
+}
+
+if ($deployEc -ne 0) {
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host "    Deployment failed (exit code $deployEc). See errors above." -ForegroundColor Red
+    Write-Host "================================================================" -ForegroundColor Red
+    exit $deployEc
 }
 
 # --- Done ---------------------------------------------------------------------

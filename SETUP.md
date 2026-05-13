@@ -6,6 +6,26 @@
 
 ---
 
+## Quick Commands
+
+Run these from the **client's Azure Cloud Shell**. Set the token once per session, then use the relevant command.
+
+```powershell
+# 1. Set GitHub token (once per session — stays in memory, never written to disk)
+$env:GITHUB_TOKEN = "ghp_..."
+
+# 2. Fresh install (Entra + infrastructure + GitHub Actions setup + first deploy)
+irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
+
+# 3. Update (re-apply RBAC, verify health — run after code changes or role drift)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Update
+
+# 4. Decommission (delete all Azure resources — prompts for confirmation)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Remove
+```
+
+---
+
 ## Overview
 
 Three operations cover the full lifecycle — all are single commands from the client's Azure Cloud Shell:
@@ -33,11 +53,14 @@ irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/i
 ```
 Creates the Entra App Registration and provisions all Azure infrastructure. Takes ~8 minutes. Without `-GitHubToken` it prints manual GitHub setup instructions and exits — you then set up GitHub Actions and run the workflows yourself.
 
-To also configure GitHub automatically and trigger the first full deployment (recommended):
+To also configure GitHub automatically and trigger the first full deployment (recommended), set your GitHub PAT as an environment variable first — this avoids typing it in the command and is safe because it stays in memory, not in a file:
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -GitHubToken "ghp_..."
+$env:GITHUB_TOKEN = "ghp_..."   # set once per Cloud Shell session
+irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
 ```
-With `-GitHubToken` the full install (infra + code deploy + health check) takes **~30–45 minutes** — most of the wait is the Consumption plan cold start (15–27 min).
+The script reads `$env:GITHUB_TOKEN` automatically and installs PyNaCl on its own — no manual setup needed.
+
+With a GitHub token the full install (infra + code deploy + health check) takes **~30–45 minutes** — most of the wait is the Consumption plan cold start (15–27 min).
 
 ### Update
 Re-applies RBAC roles and verifies the deployment is healthy. Run this after pulling new code or if a role assignment was accidentally removed.
@@ -51,7 +74,14 @@ Deletes all Azure resources. Prompts `Type 'yes' to confirm` before proceeding.
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Remove
 ```
 
-> The Entra App Registration is **not** deleted — remove it manually from Entra ID → App Registrations if you want a complete cleanup.
+The script prints a cleanup checklist at the end showing what was removed and what still needs manual action:
+
+| Item | Handled by script | Action if not |
+|------|------------------|---------------|
+| Managed Identity RBAC on all subscriptions | Yes — removed automatically | Re-run with `-Remove` |
+| Resource group + all resources inside it | Yes — deleted (async) | Delete manually in Portal |
+| Entra App Registration 'AzureOptimize Pro' | **No** | Portal → Entra ID → App Registrations → Delete |
+| GitHub environments (`rg-*`, `default`) | **No** | GitHub → Settings → Environments → Delete |
 
 All three commands auto-detect the tenant from your active Azure login. No need to pass `-TenantId` manually.
 
@@ -63,7 +93,7 @@ All three commands auto-detect the tenant from your active Azure login. No need 
 
 ```powershell
 az --version     # 2.50+
-node --version   # v22.x
+node --version   # v22.x  (fresh install only — not needed for Update or Remove)
 pwsh --version   # 7+  (Windows PowerShell 5.1 also works)
 ```
 
@@ -74,7 +104,17 @@ cd "Cost Optimization Tool"
 .\infra\Setup-Entra.ps1 -TenantId "<CLIENT_TENANT_ID>"
 ```
 
-Creates the Entra App Registration, grants admin consent, and prints the exact deploy command.
+Creates (or reuses) the Entra App Registration and prints the exact deploy command. The script runs 5 steps with clear pass/fail output:
+
+| Step | Action |
+|------|--------|
+| 1/5 | Authenticate to tenant + get admin Object ID |
+| 2/5 | Create or find 'AzureOptimize Pro' App Registration |
+| 3/5 | Configure SPA redirect URI and service principal (new apps only) |
+| 4/5 | Enable ID token issuance and expose `user_impersonation` API scope |
+| 5/5 | Grant admin consent for all principals in tenant |
+
+Each step prints `[OK]` on success or `[FAIL]` with the exact reason and fix on failure. Steps 4 and 5 are non-fatal — the app still works even if they warn (users see a one-time consent prompt on first sign-in).
 
 ### Step 2 — Infrastructure Deployment
 
@@ -132,7 +172,7 @@ Pass `-GitHubToken` to have the script automatically create a GitHub Environment
   -GitHubToken       "ghp_..."
 ```
 
-PAT scopes needed: `repo` (classic) or Actions read/write (fine-grained). Install PyNaCl first: `pip install PyNaCl`
+PAT scopes needed: `repo` (classic) or Actions read/write (fine-grained). PyNaCl is installed automatically by the deploy script.
 
 Each client gets its own GitHub Environment (named after the resource group, e.g. `rg-contoso`). Client credentials are fully isolated from each other inside the same repo. The `default` environment is also updated so that automatic deploys on push always target the most recently configured client.
 
@@ -316,7 +356,7 @@ To re-deploy for a specific client after a code update: run the workflows manual
 | Classic | `repo` (includes secrets, variables, environments, workflows) |
 | Fine-grained | Repository → Actions: Read and write; Environments: Read and write |
 
-> Install PyNaCl before using `-GitHubToken`: `pip install PyNaCl`
+> PyNaCl is installed automatically by the install script whenever `-GitHubToken` is used (or `$env:GITHUB_TOKEN` is set). No manual step required.
 
 **If environment creation fails with 403:** The PAT is missing the Environments permission. The script will print a warning and the URL to create environments manually — secrets and variables will still be saved to `%TEMP%\azopt-github-secrets\`. Create the environments at `Settings → Environments`, then set secrets/variables manually using those files, and re-run the workflows.
 
