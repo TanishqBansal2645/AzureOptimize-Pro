@@ -31,12 +31,13 @@ All three lifecycle operations are single commands run from the **client's Azure
 ```powershell
 irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
 ```
-Creates the Entra App Registration, provisions all Azure infrastructure, configures GitHub Actions, and deploys the code. Takes ~15 minutes.
+Creates the Entra App Registration and provisions all Azure infrastructure. Takes ~8 minutes. Without `-GitHubToken` it prints manual GitHub setup instructions and exits — you then set up GitHub Actions and run the workflows yourself.
 
-To also configure GitHub automatically (recommended — avoids manual secret setup):
+To also configure GitHub automatically and trigger the first full deployment (recommended):
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -GitHubToken "ghp_..."
 ```
+With `-GitHubToken` the full install (infra + code deploy + health check) takes **~30–45 minutes** — most of the wait is the Consumption plan cold start (15–27 min).
 
 ### Update
 Re-applies RBAC roles and verifies the deployment is healthy. Run this after pulling new code or if a role assignment was accidentally removed.
@@ -103,7 +104,7 @@ Creates the Entra App Registration, grants admin consent, and prints the exact d
 
 #### Optional: Branding
 
-Both branding fields are always initialised (empty by default, with fallbacks) — pass them to set values at deploy time:
+Both branding fields are empty by default. `DeveloperName` falls back to "Tanishq Bansal" if omitted; `CompanyName` simply shows nothing in the header if omitted. Pass them to set values at deploy time:
 
 ```powershell
 .\infra\Deploy-AzureCostOptimize.ps1 `
@@ -142,7 +143,7 @@ See the **GitHub Actions Secrets and Variables Required** section at the end of 
 
 ### Step 3 — Update Entra Redirect URI
 
-After the first deployment, add the production URL to the Entra App:
+> **The deploy script does this automatically** — the SPA redirect URI is set right after Bicep finishes. This step is only needed if the auto-update failed, or if the Static Web App URL changes later (e.g. after recreating the SWA).
 
 ```powershell
 .\infra\Setup-Entra.ps1 `
@@ -152,7 +153,7 @@ After the first deployment, add the production URL to the Entra App:
   -UpdateRedirectUri
 ```
 
-Or via Azure CLI:
+Or via Azure CLI (manual fallback):
 
 ```powershell
 # IMPORTANT: must use --set spa=... (Single-page application platform), NOT --web-redirect-uris
@@ -226,7 +227,7 @@ Use `-Update` after:
 
 ## Branding
 
-Two optional branding fields are initialised empty on every fresh deploy and have code fallbacks, so the tool works out of the box and you customise them when ready.
+Two optional branding fields — empty by default. `COMPANY_NAME` shows nothing if not set; `NEXT_PUBLIC_DEVELOPER_NAME` falls back to "Tanishq Bansal". The tool works out of the box without either; set them when ready.
 
 | Setting | Where shown | Deploy param | Fallback |
 |---------|-------------|-------------|---------|
@@ -341,7 +342,7 @@ az ad app update --id $appId `
 > This error also appears when the Entra App Registration is registered in a different tenant than the one being deployed to. Verify `NEXT_PUBLIC_AZURE_TENANT_ID` in the GitHub environment matches the target tenant.
 
 ### Login page shows wrong tenant / "Sign-in failed" on fresh deploy
-The frontend `NEXT_PUBLIC_*` variables were not set before the GitHub Actions build ran. Check the environment variables at `Settings → Environments → {your-environment} → Variables`. All 6 `NEXT_PUBLIC_*` variables must be present. If missing, set them and re-run the `Deploy Frontend` workflow manually (set `client_environment` to the environment name).
+The frontend `NEXT_PUBLIC_*` variables were not set before the GitHub Actions build ran. Check the environment variables at `Settings → Environments → {your-environment} → Variables`. The 5 required variables must be present: `NEXT_PUBLIC_AZURE_TENANT_ID`, `NEXT_PUBLIC_AZURE_CLIENT_ID`, `NEXT_PUBLIC_AZURE_REDIRECT_URI`, `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_ADMIN_PRINCIPAL_ID`. If missing, set them and re-run the `Deploy Frontend` workflow manually (set `client_environment` to the environment name).
 
 ### API deploy fails: "Could not find app 'func-azureoptimize-xxx'"
 The `AZURE_FUNCTIONAPP_NAME` repository variable is missing or incorrect. Find the correct name:
@@ -412,10 +413,12 @@ The `AZURE_STATIC_WEB_APPS_API_TOKEN` secret in the GitHub environment has expir
 $swaName = az staticwebapp list -g rg-azureoptimize --query "[0].name" -o tsv
 $token = az staticwebapp secrets list --name $swaName --resource-group rg-azureoptimize --query "properties.apiKey" -o tsv
 
-# Encrypt and push to GitHub (repeat for each environment: rg-azureoptimize, default)
+# Encrypt and push to GitHub — update BOTH environments
+# Replace "rg-azureoptimize" with your client environment name if different
 pip install PyNaCl -q
+$clientEnv = "rg-azureoptimize"   # change to your environment name, e.g. "rg-contoso"
 $headers = @{Authorization="token <YOUR_PAT>"; "Accept"="application/vnd.github+json"}
-foreach ($env in @("rg-azureoptimize", "default")) {
+foreach ($env in @($clientEnv, "default")) {
     $key = Invoke-RestMethod -Uri "https://api.github.com/repos/TanishqBansal2645/AzureOptimize-Pro/environments/$env/secrets/public-key" -Headers $headers
     $enc = python -c "
 import base64; from nacl import public
