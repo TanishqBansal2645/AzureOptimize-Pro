@@ -213,7 +213,7 @@ Pass `-GitHubToken` to have the script automatically create a GitHub Environment
 
 PAT scopes needed: `repo` (classic) or Actions read/write (fine-grained). PyNaCl is installed automatically by the deploy script.
 
-Each client gets its own GitHub Environment (named after the resource group, e.g. `rg-contoso`). Client credentials are fully isolated from each other inside the same repo. The `default` environment is also updated so that automatic deploys on push always target the most recently configured client.
+Each client gets its own GitHub Environment (named after the resource group, e.g. `rg-azureoptimize-a188e9`). Client credentials are fully isolated from each other inside the same repo. The `default` environment is also updated so that automatic deploys on push always target the most recently configured client.
 
 Without `-GitHubToken`, the script saves all values to `/tmp/azopt-github-secrets/` and prints step-by-step instructions to set up the environment manually at:
 `https://github.com/TanishqBansal2645/AzureOptimize-Pro/settings/environments`
@@ -359,10 +359,10 @@ The deploy script creates two environments per client deployment:
 
 | Environment | Used by | Purpose |
 |-------------|---------|---------|
-| `rg-{client}` (e.g. `rg-contoso`) | `workflow_dispatch` triggered by deploy script | Client-specific isolated credentials |
+| `rg-azureoptimize-{suffix}` (e.g. `rg-azureoptimize-a188e9`) | `workflow_dispatch` triggered by deploy script | Client-specific isolated credentials |
 | `default` | Push-triggered runs (no dispatch input) | Always updated to the most recently deployed client — ensures `git push` auto-deploys correctly |
 
-Workflows read `environment: ${{ inputs.client_environment \|\| 'default' }}`. When the deploy script triggers them it passes `client_environment: rg-contoso`; automatic push-triggered runs fall back to `default`.
+Workflows read `environment: ${{ inputs.client_environment \|\| 'default' }}`. When the deploy script triggers them it passes `client_environment: rg-azureoptimize-a188e9`; automatic push-triggered runs fall back to `default`.
 
 To re-deploy for a specific client after a code update: run the workflows manually from GitHub Actions → Run workflow → set `client_environment` to their environment name.
 

@@ -43,7 +43,7 @@
 .PARAMETER ClientEnvironment
     GitHub Environment name for this client deployment. Secrets and variables are stored
     in this environment (isolated from other clients). Defaults to ResourceGroupName.
-    Example: rg-contoso, rg-fabrikam
+    Example: rg-azureoptimize-a188e9 (matches the auto-derived ResourceGroupName)
 
 .PARAMETER CompanyName
     Optional company/client name displayed in the header subtitle only.
@@ -825,7 +825,7 @@ if ($GitHubToken) {
     }
     catch {
         Write-Fail "Failed to set GitHub secrets: $_"
-        Write-Host "  Ensure Python + PyNaCl is installed: pip install PyNaCl" -ForegroundColor Gray
+        Write-Host "  Ensure PyNaCl is installed: pip3 install PyNaCl" -ForegroundColor Gray
         exit 1
     }
 

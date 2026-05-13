@@ -50,7 +50,7 @@ Always read `GUIDE.md` and `SETUP.md` in this directory before writing any code.
 ```
 Frontend:    Next.js 15 (App Router, static export), TypeScript, strict mode
 UI:          Tailwind CSS + shadcn/ui components + Recharts for charts
-Backend:     Azure Functions v4, Node.js 20, TypeScript, strict mode
+Backend:     Azure Functions v4, Node.js 22, TypeScript, strict mode
 State:       Azure Table Storage (@azure/data-tables)
 Reports:     ExcelJS
 Auth:        Azure Entra ID (MSAL) — @azure/msal-node + @azure/msal-browser

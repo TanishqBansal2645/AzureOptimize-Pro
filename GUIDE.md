@@ -498,7 +498,7 @@ See [SETUP.md](SETUP.md) for the full deployment guide.
 
 **TL;DR — from Azure Cloud Shell:**
 ```powershell
-irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 | iex
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1)))
 ```
 
 **Code updates are automatic:** push to `main` on GitHub and GitHub Actions deploys both the API and frontend within ~3 minutes.
@@ -509,14 +509,14 @@ irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/i
 |-----------|---------|--------------|
 | **Deploy** | `.\infra\Setup-Entra.ps1` then `.\infra\Deploy-AzureCostOptimize.ps1 ...` | Full fresh install — provisions all Azure resources, assigns RBAC roles, deploys code |
 | **Update** | `.\infra\Deploy-AzureCostOptimize.ps1 -TenantId "..." -Update` | Re-applies role assignments, optionally updates branding, runs health check. Use after pulling infra changes or if a role was removed |
-| **Remove** | `.\infra\Deploy-AzureCostOptimize.ps1 -TenantId "..." -Remove` | Deletes all Azure resources and role assignments. Prompts for confirmation. Entra App Registration is left in place (delete manually if needed) |
+| **Remove** | `.\infra\Deploy-AzureCostOptimize.ps1 -TenantId "..." -Remove` | Deletes all Azure resources, role assignments, Entra App Registration, and GitHub environments. Prompts for confirmation. GitHub environment deletion requires `$env:GITHUB_TOKEN` to be set. |
 
 ---
 
 ## Development Setup
 
 ### Prerequisites
-- Node.js 20+
+- Node.js 22+
 - Azure Functions Core Tools v4
 - Azure CLI (`az` command)
 - Git
