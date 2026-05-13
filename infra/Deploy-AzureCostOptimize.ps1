@@ -760,7 +760,7 @@ else {
 if ($GitHubToken) {
     Write-Host "  Ensuring PyNaCl is installed..." -ForegroundColor Gray
     $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    pip3 install PyNaCl --quiet 2>&1 | Out-Null
+    python3 -m pip install PyNaCl --quiet --user 2>&1 | Out-Null
     $ErrorActionPreference = $prevEAP
 }
 
@@ -825,7 +825,7 @@ if ($GitHubToken) {
     }
     catch {
         Write-Fail "Failed to set GitHub secrets: $_"
-        Write-Host "  Ensure PyNaCl is installed: pip3 install PyNaCl" -ForegroundColor Gray
+        Write-Host "  Ensure PyNaCl is installed: python3 -m pip install PyNaCl --user" -ForegroundColor Gray
         exit 1
     }
 

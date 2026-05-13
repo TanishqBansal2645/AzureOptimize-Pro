@@ -492,7 +492,7 @@ $swaName = az staticwebapp list -g <resource-group> --query "[0].name" -o tsv
 $token = az staticwebapp secrets list --name $swaName --resource-group <resource-group> --query "properties.apiKey" -o tsv
 
 # Encrypt and push to GitHub — update BOTH environments
-pip3 install PyNaCl -q
+python3 -m pip install PyNaCl -q --user
 $clientEnv = "<resource-group>"   # e.g. "rg-azureoptimize-a188e9"
 $headers = @{Authorization="token <YOUR_PAT>"; "Accept"="application/vnd.github+json"}
 foreach ($env in @($clientEnv, "default")) {
