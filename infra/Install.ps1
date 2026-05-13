@@ -201,12 +201,12 @@ if ($Update) {
 if ($GitHubToken) {
     Write-Host "`nInstalling PyNaCl for GitHub secret encryption..." -ForegroundColor Cyan
     $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    pip install PyNaCl --quiet 2>&1 | Out-Null
+    pip3 install PyNaCl --quiet 2>&1 | Out-Null
     $pipEc = $LASTEXITCODE
     $ErrorActionPreference = $prevEAP
     if ($pipEc -ne 0) {
         Write-Host "  Warning: Could not install PyNaCl. GitHub secret configuration may fail." -ForegroundColor Yellow
-        Write-Host "  Run manually if needed: pip install PyNaCl" -ForegroundColor Yellow
+        Write-Host "  Run manually if needed: pip3 install PyNaCl" -ForegroundColor Yellow
     } else {
         Write-Host "  PyNaCl ready." -ForegroundColor Green
     }

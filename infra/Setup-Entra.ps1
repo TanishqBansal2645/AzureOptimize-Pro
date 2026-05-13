@@ -1,4 +1,4 @@
-#
+<#
 .SYNOPSIS
     Automates the Entra App Registration setup required before deployment.
 

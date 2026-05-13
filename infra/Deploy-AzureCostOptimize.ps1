@@ -1,4 +1,4 @@
-#
+<#
 .SYNOPSIS
     Deploys AzureOptimize Pro to a client Azure tenant.
 
@@ -224,7 +224,7 @@ urllib.request.urlopen(urllib.request.Request(
 
     try {
         $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-        $result = python $pyScript $Token $Repo $Name $EnvName $valueFile 2>&1
+        $result = python3 $pyScript $Token $Repo $Name $EnvName $valueFile 2>&1
         $pyEc = $LASTEXITCODE
         $ErrorActionPreference = $prevEAP
         if ($pyEc -ne 0) {
