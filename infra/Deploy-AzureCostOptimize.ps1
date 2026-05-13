@@ -44,8 +44,9 @@
     Example: rg-contoso, rg-fabrikam
 
 .PARAMETER CompanyName
-    Optional company/client name displayed in the sidebar and header of the dashboard.
-    If omitted, the Azure AD tenant display name is used automatically.
+    Optional company/client name displayed in the header subtitle only.
+    The sidebar always shows "AzureOptimize Pro" regardless of this setting.
+    If omitted, no subtitle is shown in the header.
     Can also be set or updated at any time with -Update -CompanyName "New Name".
 
 .PARAMETER DeveloperName

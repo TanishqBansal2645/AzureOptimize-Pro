@@ -30,8 +30,9 @@
     Only used during new installs (ignored for -Update and -Remove).
 
 .PARAMETER CompanyName
-    Optional company/client name shown in the sidebar and header.
-    Falls back to the Azure AD tenant display name if omitted.
+    Optional company/client name shown in the header subtitle only.
+    The sidebar always shows "AzureOptimize Pro" regardless of this setting.
+    If omitted, no subtitle is shown in the header.
 
 .PARAMETER DeveloperName
     Optional developer/consultant name shown on the login page footer.

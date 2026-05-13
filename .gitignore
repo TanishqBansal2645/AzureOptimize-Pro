@@ -39,3 +39,7 @@ logs/
 
 # Build artifacts
 *.zip
+
+# Deploy staging dirs (created by deploy-api.yml locally)
+api-deploy/
+api-deploy-new/

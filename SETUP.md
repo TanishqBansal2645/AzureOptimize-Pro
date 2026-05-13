@@ -437,10 +437,10 @@ Symptom: login works, dashboard loads, but data cards show error messages. This 
 **Cause:** The frontend bundle bakes in `NEXT_PUBLIC_API_BASE_URL` at build time. If the variable was updated in GitHub but the frontend was not successfully redeployed, the old URL is still in the bundle.
 
 **Fix:**
-1. Verify the correct API URL: `az functionapp list -g rg-azureoptimize --query "[0].defaultHostname" -o tsv` → should be `func-azopt2-jmf62z.azurewebsites.net`
-2. Check the GitHub environment variable matches: `Settings → Environments → default → Variables → NEXT_PUBLIC_API_BASE_URL`
+1. Verify the correct API URL: `az functionapp list -g <resource-group> --query "[0].defaultHostname" -o tsv`
+2. Check the GitHub environment variable matches: `Settings → Environments → {env} → Variables → NEXT_PUBLIC_API_BASE_URL`
 3. Check the last Deploy Frontend run in GitHub Actions — if it failed, fix the failure (usually expired SWA token, see above) and redeploy
-4. Trigger redeploy: GitHub Actions → Deploy Frontend → Run workflow → `client_environment: rg-azureoptimize`
+4. Trigger redeploy: GitHub Actions → Deploy Frontend → Run workflow → `client_environment: <your-environment-name>` (e.g. `rg-azureoptimize`)
 
 ### "Dashboard loads but shows No data"
 Cost data collects on 4-hour timers. Wait up to 4 hours, or trigger a manual refresh via the dashboard's Refresh button.
