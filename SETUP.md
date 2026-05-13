@@ -83,6 +83,26 @@ The script prints a cleanup checklist at the end showing what was removed and wh
 | Entra App Registration 'AzureOptimize Pro' | **No** | Portal → Entra ID → App Registrations → Delete |
 | GitHub environments (`rg-*`, `default`) | **No** | GitHub → Settings → Environments → Delete |
 
+### Optional: Prevent Cloud Shell disconnects (tmux)
+
+A fresh install takes 30–45 minutes. If your browser tab closes or your network drops mid-run, Cloud Shell will disconnect and the script will be killed. Use `tmux` to keep the session alive regardless:
+
+```bash
+# 1. Start a tmux session BEFORE running the script
+tmux new-session -s azopt
+
+# 2. Inside tmux — set the token and run as normal
+$env:GITHUB_TOKEN = "ghp_..."
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1)))
+
+# 3. If Cloud Shell disconnects mid-run:
+#    → Reopen the Cloud Shell tab, then run:
+tmux attach -t azopt
+#    → You're back — the script is still running in the background
+```
+
+`tmux` is pre-installed in Azure Cloud Shell. The session persists on Azure's servers even if your browser disconnects — you can close the tab and reattach from any browser. The script itself also prints status every 30 seconds during the long steps (Bicep, GitHub Actions wait, health check), so an active session will stay alive on its own.
+
 All three commands auto-detect the tenant from your active Azure login. No need to pass `-TenantId` manually.
 
 ---
