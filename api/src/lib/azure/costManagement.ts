@@ -278,6 +278,15 @@ export async function getAllSubscriptionCosts(
   );
 
   return results
-    .filter((r): r is PromiseFulfilledResult<CostSummary> => r.status === 'fulfilled')
-    .map((r) => r.value);
+    .filter((r, i) => {
+      if (r.status === 'rejected') {
+        console.error(
+          `Failed to collect costs for subscription ${subscriptions[i]?.name} (${subscriptions[i]?.id}):`,
+          r.reason
+        );
+        return false;
+      }
+      return true;
+    })
+    .map((r) => (r as PromiseFulfilledResult<CostSummary>).value);
 }
