@@ -358,11 +358,10 @@ Write-Host ""
 Write-Host "  Run the deployment now:" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "    .\Deploy-AzureCostOptimize.ps1 ``" -ForegroundColor Yellow
-Write-Host "      -TenantId          `"$TenantId`" ``" -ForegroundColor Yellow
-Write-Host "      -AdminPrincipalId  `"$adminOid`" ``" -ForegroundColor Yellow
-Write-Host "      -AppClientId       `"$AppClientId`" ``" -ForegroundColor Yellow
-Write-Host "      -Location          `"eastus`" ``" -ForegroundColor Yellow
-Write-Host "      -ResourceGroupName `"rg-azureoptimize`"" -ForegroundColor Yellow
+Write-Host "      -TenantId         `"$TenantId`" ``" -ForegroundColor Yellow
+Write-Host "      -AdminPrincipalId `"$adminOid`" ``" -ForegroundColor Yellow
+Write-Host "      -AppClientId      `"$AppClientId`"" -ForegroundColor Yellow
+Write-Host "  (ResourceGroupName and Location use sensible defaults - override only if needed)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  The deploy script automatically updates the SPA redirect URI after Bicep completes." -ForegroundColor Green
 Write-Host "  If the auto-update fails, run this manually:" -ForegroundColor Cyan

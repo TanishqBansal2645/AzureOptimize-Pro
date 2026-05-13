@@ -75,34 +75,52 @@ Deletes all Azure resources. Prompts `Type 'yes' to confirm` before proceeding.
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Remove
 ```
 
-The script prints a cleanup checklist at the end showing what was removed and what still needs manual action:
+The script fully cleans up all resources automatically — no manual steps needed:
 
-| Item | Handled by script | Action if not |
-|------|------------------|---------------|
-| Managed Identity RBAC on all subscriptions | Yes — removed automatically | Re-run with `-Remove` |
-| Resource group + all resources inside it | Yes — deleted (async) | Delete manually in Portal |
-| Entra App Registration 'AzureOptimize Pro' | **No** | Portal → Entra ID → App Registrations → Delete |
-| GitHub environments (`rg-*`, `default`) | **No** | GitHub → Settings → Environments → Delete |
+| Item | Handled by script |
+|------|------------------|
+| Managed Identity RBAC on all subscriptions | Yes — removed automatically |
+| Resource group + all resources inside it | Yes — deleted (async) |
+| Entra App Registration 'AzureOptimize Pro' | Yes — deleted automatically |
+| GitHub environments (`rg-*`, `default`) | Yes — deleted (requires `$env:GITHUB_TOKEN` to be set) |
 
-### Optional: Prevent Cloud Shell disconnects (tmux)
+If `$env:GITHUB_TOKEN` is not set, GitHub environments are skipped with a warning and the manual URL is printed.
 
-A fresh install takes 30–45 minutes. If your browser tab closes or your network drops mid-run, Cloud Shell will disconnect and the script will be killed. Use `tmux` to keep the session alive regardless:
+### If Cloud Shell disconnects mid-run (nohup approach)
 
+A fresh install takes 30–45 minutes. Run the script in the background with `nohup` — it keeps running on Azure's servers even if your browser tab closes or your network drops. All output goes to a log file you can read at any time.
+
+**Fresh install:**
 ```bash
-# 1. Start a tmux session BEFORE running the script
-tmux new-session -s azopt
+# In bash (Cloud Shell default shell)
+export GITHUB_TOKEN="ghp_..."
 
-# 2. Inside tmux — set the token and run as normal
-$env:GITHUB_TOKEN = "ghp_..."
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1)))
-
-# 3. If Cloud Shell disconnects mid-run:
-#    → Reopen the Cloud Shell tab, then run:
-tmux attach -t azopt
-#    → You're back — the script is still running in the background
+# Download the script and run in background
+curl -s https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 > ~/Install.ps1
+nohup pwsh -File ~/Install.ps1 > ~/azopt.log 2>&1 &
+echo "Deploy running (PID $!). Watching log — Ctrl+C to stop watching (deploy keeps running):"
+tail -f ~/azopt.log
 ```
 
-`tmux` is pre-installed in Azure Cloud Shell. The session persists on Azure's servers even if your browser disconnects — you can close the tab and reattach from any browser. The script itself also prints status every 30 seconds during the long steps (Bicep, GitHub Actions wait, health check), so an active session will stay alive on its own.
+**If you get disconnected:** reconnect to Cloud Shell and run:
+```bash
+tail -f ~/azopt.log      # follow live output
+# or
+cat ~/azopt.log          # see the full log from the start
+```
+
+**Update** (repo already cloned):
+```bash
+cd ~/azureoptimize && git pull origin main --quiet
+nohup pwsh -File ~/azureoptimize/infra/Install.ps1 -Update > ~/azopt-update.log 2>&1 &
+tail -f ~/azopt-update.log
+```
+
+**Remove** — run interactively (has a confirmation prompt, completes in under 2 minutes):
+```bash
+pwsh
+./azureoptimize/infra/Install.ps1 -Remove
+```
 
 All three commands auto-detect the tenant from your active Azure login. No need to pass `-TenantId` manually.
 

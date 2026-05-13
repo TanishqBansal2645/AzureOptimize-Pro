@@ -100,7 +100,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$script:tmpDir = if ($script:tmpDir) { $script:tmpDir } elseif ($env:TMPDIR) { $env:TMPDIR } else { "/tmp" }
+$script:tmpDir = if ($env:TEMP) { $env:TEMP } elseif ($env:TMPDIR) { $env:TMPDIR } else { "/tmp" }
+if (-not $GitHubToken -and $env:GITHUB_TOKEN) { $GitHubToken = $env:GITHUB_TOKEN }
 
 if (-not $ResourceGroupName) {
     $tenantSuffix      = $TenantId.Replace("-", "").Substring(26, 6)
@@ -316,8 +317,7 @@ function Remove-MIRoleAssignments {
 if ($Remove) {
     Show-Banner
     Write-Host "  REMOVE MODE" -ForegroundColor Red
-    Write-Host "  Permanently deletes all Azure resources in '$ResourceGroupName'." -ForegroundColor Red
-    Write-Host "  NOTE: The Entra App Registration is NOT deleted by this script." -ForegroundColor Yellow
+    Write-Host "  Deletes all Azure resources, Entra App Registration, and GitHub environments for '$ResourceGroupName'." -ForegroundColor Red
     Write-Host ""
 
     if (-not $Force) {
@@ -331,8 +331,8 @@ if ($Remove) {
         Write-Warn "-Force specified: skipping confirmation prompt"
     }
 
-    # [1/3] Login
-    Write-Step 1 3 "Logging in to tenant $TenantId"
+    # [1/5] Login
+    Write-Step 1 5 "Logging in to tenant $TenantId"
     try {
         $currentTenant = az account show --query "tenantId" -o tsv 2>$null
         if ($currentTenant -ne $TenantId) { az login --tenant $TenantId --output none }
@@ -343,8 +343,8 @@ if ($Remove) {
         exit 1
     }
 
-    # [2/3] Remove RBAC
-    Write-Step 2 3 "Removing Managed Identity role assignments from all subscriptions"
+    # [2/5] Remove RBAC
+    Write-Step 2 5 "Removing Managed Identity role assignments from all subscriptions"
     try {
         $subList       = az account list --output json --only-show-errors | ConvertFrom-Json
         $subscriptions = @($subList | Where-Object { $_.tenantId -eq $TenantId } | Select-Object -ExpandProperty id)
@@ -369,15 +369,36 @@ if ($Remove) {
         }
         else {
             Write-Warn "Managed Identity not found in '$ResourceGroupName' - RBAC cleanup skipped"
-            Write-Host "  (This is OK if the resource group was never fully deployed)" -ForegroundColor Gray
         }
     }
     catch {
-        Write-Warn "RBAC cleanup error: $_ - continuing with resource group deletion"
+        Write-Warn "RBAC cleanup error: $_ - continuing"
     }
 
-    # [3/3] Delete resource group
-    Write-Step 3 3 "Deleting resource group '$ResourceGroupName'"
+    # [3/5] Delete Entra App Registration
+    Write-Step 3 5 "Deleting Entra App Registration 'AzureOptimize Pro'"
+    try {
+        $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $appId   = (az ad app list --display-name "AzureOptimize Pro" --query "[0].appId" -o tsv 2>$null)
+        $ErrorActionPreference = $prevEAP
+        if ($appId) {
+            $appId = $appId.Trim()
+            $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+            az ad app delete --id $appId --output none 2>$null
+            $ErrorActionPreference = $prevEAP
+            Write-Success "Entra App Registration deleted (app ID: $appId)"
+        }
+        else {
+            Write-Warn "App Registration 'AzureOptimize Pro' not found - already deleted or never created"
+        }
+    }
+    catch {
+        Write-Warn "Could not delete Entra App Registration: $_"
+        Write-Host "  Delete manually: Portal -> Entra ID -> App Registrations -> AzureOptimize Pro -> Delete" -ForegroundColor Gray
+    }
+
+    # [4/5] Delete resource group
+    Write-Step 4 5 "Deleting resource group '$ResourceGroupName'"
     $prevEAP   = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     $delOutput = az group delete --name $ResourceGroupName --yes --no-wait 2>&1
     $delEc     = $LASTEXITCODE
@@ -395,18 +416,44 @@ if ($Remove) {
         exit 1
     }
 
+    # [5/5] Delete GitHub environments
+    Write-Step 5 5 "Deleting GitHub environments"
+    $resolvedToken = if ($GitHubToken) { $GitHubToken } elseif ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $null }
+    if ($resolvedToken) {
+        $ghRemoveHeaders = @{
+            Authorization          = "Bearer $resolvedToken"
+            Accept                 = "application/vnd.github.v3+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+            "User-Agent"           = "AzureOptimize-Deploy"
+        }
+        foreach ($envName in @($ClientEnvironment, "default")) {
+            try {
+                Invoke-RestMethod -Method DELETE `
+                    -Uri "https://api.github.com/repos/$GitHubRepo/environments/$envName" `
+                    -Headers $ghRemoveHeaders | Out-Null
+                Write-Success "GitHub environment '$envName' deleted"
+            }
+            catch {
+                $errMsg = $_.ToString()
+                if ($errMsg -match "404|Not Found") {
+                    Write-Warn "GitHub environment '$envName' not found - already deleted or never created"
+                }
+                else {
+                    Write-Warn "Could not delete '$envName': $errMsg"
+                }
+            }
+        }
+    }
+    else {
+        Write-Warn "No GitHub token provided - GitHub environments not deleted"
+        Write-Host "  Set `$env:GITHUB_TOKEN and re-run -Remove, or delete manually:" -ForegroundColor Gray
+        Write-Host "  https://github.com/$GitHubRepo/settings/environments" -ForegroundColor Gray
+    }
+
     Write-Host ""
     Write-Host "================================================================" -ForegroundColor Green
     Write-Host "    Decommission complete!" -ForegroundColor Green
     Write-Host "================================================================" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "  Cleanup checklist:" -ForegroundColor Cyan
-    Write-Host "  [x] Managed Identity role assignments removed from all subscriptions" -ForegroundColor Green
-    Write-Host "  [x] Resource group '$ResourceGroupName' deletion initiated" -ForegroundColor Green
-    Write-Host "  [ ] Entra App Registration 'AzureOptimize Pro' - delete manually if needed:" -ForegroundColor Yellow
-    Write-Host "      Portal -> Microsoft Entra ID -> App Registrations -> AzureOptimize Pro -> Delete" -ForegroundColor Gray
-    Write-Host "  [ ] GitHub environments '$ResourceGroupName' + 'default' - delete manually if needed:" -ForegroundColor Yellow
-    Write-Host "      https://github.com/TanishqBansal2645/AzureOptimize-Pro/settings/environments" -ForegroundColor Gray
     Write-Host ""
     exit 0
 }

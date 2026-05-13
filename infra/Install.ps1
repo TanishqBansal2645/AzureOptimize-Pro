@@ -161,9 +161,12 @@ if ($Remove) {
     Write-Host "  Resource group: $ResourceGroupName" -ForegroundColor Red
     Write-Host "================================================================" -ForegroundColor Red
 
+    $removeArgs = @{ TenantId = $TenantId; ResourceGroupName = $ResourceGroupName; Remove = $true }
+    if ($GitHubToken) { $removeArgs['GitHubToken'] = $GitHubToken }
+
     Push-Location $infraPath
     try {
-        & $deployScript -TenantId $TenantId -ResourceGroupName $ResourceGroupName -Remove
+        & $deployScript @removeArgs
         $removeEc = $LASTEXITCODE
     }
     finally {
