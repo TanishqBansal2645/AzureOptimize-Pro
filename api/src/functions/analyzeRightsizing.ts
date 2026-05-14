@@ -157,10 +157,14 @@ export async function analyzeAndStoreRightsizing(context: InvocationContext): Pr
         continue;
       }
 
-      // Only flag if both p95 CPU < 40% AND p95 Memory < 60%
-      if (metrics.cpuP95 >= 40 || metrics.memoryP95 >= 60) {
+      // CPU < 40% p95: VM is underutilised from a compute perspective.
+      // Memory < 90% p95: threshold is intentionally high because Windows Server
+      // fills all free RAM with OS file-system cache even with zero workload.
+      // Available Memory Bytes does not distinguish committed process memory from
+      // reclaimable cache, so a fresh unloaded VM routinely shows 75-85% "used".
+      if (metrics.cpuP95 >= 40 || metrics.memoryP95 >= 90) {
         context.log(`Rightsizing: ${vm.name} (${vm.sku}) — skipped, ` +
-          `cpuP95=${metrics.cpuP95}% memP95=${metrics.memoryP95}% (thresholds: CPU<40, mem<60)`);
+          `cpuP95=${metrics.cpuP95}% memP95=${metrics.memoryP95}% (thresholds: CPU<40, mem<90)`);
         continue;
       }
 
@@ -185,7 +189,7 @@ export async function analyzeAndStoreRightsizing(context: InvocationContext): Pr
 
       const monthlySaving = currentPrice - recommendedPrice;
       const confidence =
-        metrics.cpuP95 < 25 && metrics.memoryP95 < 40 ? 'High' : 'Medium';
+        metrics.cpuP95 < 25 && metrics.memoryP95 < 70 ? 'High' : 'Medium';
 
       const rowKey = Buffer.from(vm.id)
         .toString('base64')
