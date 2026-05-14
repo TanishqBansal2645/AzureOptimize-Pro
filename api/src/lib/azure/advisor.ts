@@ -56,6 +56,42 @@ export async function getCostRecommendations(
   return results;
 }
 
+export async function getAHBAdvisorSavings(
+  subscriptionIds: string[]
+): Promise<Map<string, number>> {
+  const savingsMap = new Map<string, number>();
+
+  for (const subscriptionId of subscriptionIds) {
+    const recommendations = await getCostRecommendations(subscriptionId);
+
+    for (const rec of recommendations) {
+      const isAHB =
+        rec.shortDescription.toLowerCase().includes('hybrid') ||
+        rec.recommendationType.toLowerCase().includes('hybrid') ||
+        rec.potentialBenefit.toLowerCase().includes('hybrid') ||
+        rec.shortDescription.toLowerCase().includes('ahb') ||
+        rec.recommendationType.toLowerCase().includes('ahb');
+
+      if (!isAHB || !rec.resourceId) continue;
+
+      const props = rec.extendedProperties;
+      const annual = parseFloat(
+        props['annualSavingsAmount'] ?? props['estimatedAnnualSavings'] ?? '0'
+      );
+      const monthly =
+        annual > 0
+          ? annual / 12
+          : parseFloat(props['savingsAmount'] ?? props['monthlySavings'] ?? '0');
+
+      if (monthly > 0) {
+        savingsMap.set(rec.resourceId.toLowerCase(), Math.round(monthly * 100) / 100);
+      }
+    }
+  }
+
+  return savingsMap;
+}
+
 export function parseReservationRecommendation(rec: AdvisorRecommendation): {
   isReservation: boolean;
   resourceType: string;

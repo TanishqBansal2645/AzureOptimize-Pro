@@ -11,7 +11,8 @@ import {
   findWindowsVMsWithoutAHB,
   findSQLVMsWithoutAHB,
 } from '../lib/azure/resourceGraph';
-import { getWindowsLicenseSaving } from '../lib/azure/retailPrices';
+import { getWindowsLicenseSaving, getVMPrice } from '../lib/azure/retailPrices';
+import { getAHBAdvisorSavings } from '../lib/azure/advisor';
 import {
   upsertAHB,
   getAHBRecommendations,
@@ -48,13 +49,17 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
 
   let windowsVMs: Awaited<ReturnType<typeof findWindowsVMsWithoutAHB>> = [];
   let sqlVMs: Awaited<ReturnType<typeof findSQLVMsWithoutAHB>> = [];
+  let advisorSavings = new Map<string, number>();
   try {
     const results = await Promise.all([
       findWindowsVMsWithoutAHB(subscriptionIds),
       findSQLVMsWithoutAHB(subscriptionIds),
+      getAHBAdvisorSavings(subscriptionIds),
     ]);
     windowsVMs = results[0];
     sqlVMs = results[1];
+    advisorSavings = results[2];
+    context.log(`Advisor AHB savings loaded: ${advisorSavings.size} entries`);
   } catch (err) {
     context.error('Failed to fetch VMs for AHB scan:', err);
     return;
@@ -73,9 +78,28 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
 
   for (const vm of windowsVMs) {
     try {
-      const saving = await getWindowsLicenseSaving(vm.sku ?? '', vm.location);
+      // Advisor gives savings based on actual metered costs (respects EA/MCA discounts).
+      // Retail API is a PAYG estimate used as fallback for new VMs Advisor hasn't seen yet.
+      const advisorSaving = advisorSavings.get(vm.id.toLowerCase());
+
+      let saving: number;
+      let windowsPrice: number;
+
+      if (advisorSaving !== undefined) {
+        saving = advisorSaving;
+        // Still fetch Windows PAYG price for currentMonthlyCost display; fall back to saving*2
+        windowsPrice = await getVMPrice(vm.sku ?? '', vm.location, 'Windows');
+        if (windowsPrice <= 0) windowsPrice = saving * 2;
+        context.log(`AHB: ${vm.name} — using Advisor saving=$${saving.toFixed(2)}/mo`);
+      } else {
+        const prices = await getWindowsLicenseSaving(vm.sku ?? '', vm.location);
+        saving = prices.saving;
+        windowsPrice = prices.windowsPrice > 0 ? prices.windowsPrice : saving * 2;
+        context.log(`AHB: ${vm.name} — using retail price saving=$${saving.toFixed(2)}/mo (win=$${prices.windowsPrice.toFixed(2)} linux=$${prices.linuxPrice.toFixed(2)})`);
+      }
+
       if (saving <= 0) {
-        context.warn(`AHB: skipping ${vm.name} (${vm.sku} in ${vm.location}) — price lookup returned saving=$${saving}`);
+        context.warn(`AHB: skipping ${vm.name} (${vm.sku} in ${vm.location}) — saving=$${saving} (advisor=${advisorSaving ?? 'none'})`);
         continue;
       }
 
@@ -99,8 +123,8 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
         subscriptionName: '',
         location: vm.location,
         sku: vm.sku ?? '',
-        currentMonthlyCost: saving * 2,
-        savingWithAHB: saving,
+        currentMonthlyCost: Math.round(windowsPrice * 100) / 100,
+        savingWithAHB: Math.round(saving * 100) / 100,
         powershellCommand: psCommand,
         scannedAt: new Date().toISOString(),
         status: 'active',
@@ -112,7 +136,10 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
 
   for (const vm of sqlVMs) {
     try {
-      const estimatedSaving = 200; // SQL AHB typically saves ~$200+/month per VM
+      // SQL Server licensing is complex — use Advisor if available, else $200/mo estimate
+      const advisorSaving = advisorSavings.get(vm.id.toLowerCase());
+      const saving = advisorSaving ?? 200;
+      context.log(`AHB SQL: ${vm.name} — saving=$${saving}/mo (${advisorSaving !== undefined ? 'advisor' : 'estimate'})`);
 
       const rowKey = Buffer.from(vm.id)
         .toString('base64')
@@ -134,8 +161,8 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
         subscriptionName: '',
         location: vm.location,
         sku: '',
-        currentMonthlyCost: estimatedSaving * 2,
-        savingWithAHB: estimatedSaving,
+        currentMonthlyCost: Math.round(saving * 2 * 100) / 100,
+        savingWithAHB: Math.round(saving * 100) / 100,
         powershellCommand: psCommand,
         scannedAt: new Date().toISOString(),
         status: 'active',

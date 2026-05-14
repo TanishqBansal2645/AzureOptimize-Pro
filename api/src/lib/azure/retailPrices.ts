@@ -130,15 +130,16 @@ function estimateDiskCost(skuName: string, sizeGB: number): number {
 export async function getWindowsLicenseSaving(
   skuName: string,
   region: string
-): Promise<number> {
-  // The saving is the difference between Windows and Linux pricing
-  // (AHB converts Windows to Linux-equivalent pricing)
-  const [winPrice, linuxPrice] = await Promise.all([
+): Promise<{ saving: number; windowsPrice: number; linuxPrice: number }> {
+  const [windowsPrice, linuxPrice] = await Promise.all([
     getVMPrice(skuName, region, 'Windows'),
     getVMPrice(skuName, region, 'Linux'),
   ]);
-
-  return Math.max(0, winPrice - linuxPrice);
+  return {
+    saving: Math.max(0, windowsPrice - linuxPrice),
+    windowsPrice,
+    linuxPrice,
+  };
 }
 
 export async function getPublicIPCost(region: string): Promise<number> {
