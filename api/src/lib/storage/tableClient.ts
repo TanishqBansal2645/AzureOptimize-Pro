@@ -270,6 +270,10 @@ export async function getCostData(subscriptionId: string): Promise<CostDataEntit
 
 export async function upsertIdleResource(entity: IdleResourceEntity): Promise<void> {
   const client = await ensureTable(TABLES.idleResources);
+  try {
+    const existing = await client.getEntity<IdleResourceEntity>(entity.partitionKey, entity.rowKey);
+    if (existing.status === 'dismissed') entity.status = 'dismissed';
+  } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
 

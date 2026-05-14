@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
 import { ImplementationModal } from '@/components/ui/ImplementationModal';
-import { fetchIdleResources, updateIdleStatus, IdleResourceItem } from '@/lib/api';
+import { fetchIdleResources, dismissRecommendation, IdleResourceItem } from '@/lib/api';
 import { RemediationContext } from '@/lib/remediationMeta';
 import { formatCurrency, formatDateShort } from '@/lib/utils';
 import { Trash2, CheckCircle, DollarSign, Zap } from 'lucide-react';
@@ -36,10 +36,11 @@ export default function IdleResourcesPage() {
   });
 
   const dismissMutation = useMutation({
-    mutationFn: ({ ids, subscriptionId }: { ids: string[]; subscriptionId: string }) =>
-      updateIdleStatus(ids, subscriptionId, 'reviewed'),
+    mutationFn: ({ id, subscriptionId }: { id: string; subscriptionId: string }) =>
+      dismissRecommendation('idle', id, subscriptionId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['idle-resources'] });
+      qc.invalidateQueries({ queryKey: ['dismissed'] });
       setDismissing(null);
     },
     onError: () => setDismissing(null),
@@ -185,7 +186,7 @@ export default function IdleResourcesPage() {
                     loading={dismissing === String(v)}
                     onClick={() => {
                       setDismissing(String(v));
-                      dismissMutation.mutate({ ids: [String(v)], subscriptionId: String(row['subscriptionId']) });
+                      dismissMutation.mutate({ id: String(v), subscriptionId: String(row['subscriptionId']) });
                     }}
                   >
                     Dismiss

@@ -37,7 +37,7 @@ async function syncBudgetsFromAzure(
       for await (const budget of iter) {
         if (!budget.id) continue;
 
-        const rowKey = Buffer.from(budget.id)
+        const rowKey = Buffer.from(budget.id.toLowerCase())
           .toString('base64')
           .replace(/[/+=]/g, '_')
           .slice(0, 512);
@@ -216,7 +216,7 @@ async function saveBudgetHttp(
       },
     });
 
-    const rowKey = Buffer.from(budgetResult.id ?? name)
+    const rowKey = Buffer.from((budgetResult.id ?? name).toLowerCase())
       .toString('base64')
       .replace(/[/+=]/g, '_')
       .slice(0, 512);

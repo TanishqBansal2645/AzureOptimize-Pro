@@ -48,7 +48,7 @@ export async function fetchAndStoreRecommendations(context: InvocationContext): 
         const monthlySaving = parsed.annualSavings / 12;
         const oneMonthlyCost = monthlySaving * 0.4; // RI is ~40% less than on-demand
 
-        const rowKey = Buffer.from(rec.id)
+        const rowKey = Buffer.from(rec.id.toLowerCase())
           .toString('base64')
           .replace(/[/+=]/g, '_')
           .slice(0, 512);

@@ -16,6 +16,7 @@ import {
   getAHBRecommendations,
   getStorageRecommendations,
   getDatabaseRecommendations,
+  getASPRightsizing,
   getBudgets,
 } from '../lib/storage/tableClient';
 
@@ -126,7 +127,7 @@ async function generateExcelHttp(
       errorMessage: '',
     });
 
-    const [costData, savings, idleResources, rightsizing, ahb, storage, databases, budgets] =
+    const [costData, savings, idleResources, rightsizing, ahb, storage, databases, asp, budgets] =
       await Promise.all([
         getCostData('all'),
         getSavingsLog(),
@@ -135,6 +136,7 @@ async function generateExcelHttp(
         getAHBRecommendations(),
         getStorageRecommendations(),
         getDatabaseRecommendations(),
+        getASPRightsizing(),
         getBudgets(),
       ]);
 
@@ -187,7 +189,8 @@ async function generateExcelHttp(
       rightsizing.reduce((s, r) => s + r.monthlySaving, 0) +
       ahb.reduce((s, r) => s + r.savingWithAHB, 0) +
       storage.reduce((s, r) => s + r.estimatedMonthlySaving, 0) +
-      databases.reduce((s, r) => s + r.estimatedMonthlySaving, 0);
+      databases.reduce((s, r) => s + r.estimatedMonthlySaving, 0) +
+      asp.reduce((s, r) => s + r.monthlySaving, 0);
 
     const keyMetrics = [
       ['Azure Spend — Month to Date',        formatUSD(totalMTD),              formatUSD(totalPrev), `${momChange >= 0 ? '+' : ''}${formatUSD(momChange)} (${momPercent.toFixed(1)}%)`, ''],
@@ -323,6 +326,14 @@ async function generateExcelHttp(
         rec: r.recommendation,
         monthly: r.estimatedMonthlySaving,
         effort: 'Medium',
+      })),
+      ...asp.map((r) => ({
+        priority: r.monthlySaving > 50 ? 'High' : 'Low',
+        category: 'ASP Rightsizing',
+        resource: r.aspName,
+        rec: `Scale ${r.currentSku} → ${r.recommendedSku} (avg CPU ${r.cpuAvg.toFixed(1)}%, memory ${r.memoryAvg.toFixed(1)}%)`,
+        monthly: r.monthlySaving,
+        effort: 'Low',
       })),
     ].sort((a, b) => b.monthly - a.monthly);
 

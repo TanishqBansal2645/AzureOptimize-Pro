@@ -14,12 +14,13 @@ import {
   fetchReservations,
   fetchSavings,
   fetchCosts,
+  fetchASP,
   refreshAll,
 } from '@/lib/api';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import {
   RefreshCw, Sparkles, ArrowRight, Trophy, Leaf, DollarSign,
-  Zap, TrendingDown, Award, HardDrive, Database, BookMarked,
+  Zap, TrendingDown, Award, HardDrive, Database, BookMarked, Globe,
 } from 'lucide-react';
 import { useState, type CSSProperties } from 'react';
 
@@ -38,6 +39,7 @@ export default function DashboardPage() {
   const { data: reservationsData } = useQuery({ queryKey: ['reservations'], queryFn: fetchReservations });
   const { data: savingsData, isLoading: savingsLoading } = useQuery({ queryKey: ['savings'], queryFn: fetchSavings });
   const { data: costsData } = useQuery({ queryKey: ['costs'], queryFn: () => fetchCosts() });
+  const { data: aspData } = useQuery({ queryKey: ['asp'], queryFn: fetchASP });
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -138,6 +140,19 @@ export default function DashboardPage() {
       saving: databasesData?.summary.totalMonthlySaving ?? 0,
       count: databasesData?.summary.totalCount ?? 0,
       countLabel: 'databases to optimize',
+    },
+    {
+      key: 'asp',
+      label: 'ASP Rightsizing',
+      href: '/asp-rightsizing',
+      icon: Globe,
+      color: 'text-teal-600',
+      bgColor: 'bg-teal-50',
+      borderColor: 'border-teal-100',
+      accentColor: '#0d9488',
+      saving: aspData?.summary.totalMonthlySaving ?? 0,
+      count: aspData?.summary.totalCount ?? 0,
+      countLabel: 'plans to downsize',
     },
   ].sort((a, b) => b.saving - a.saving);
 
