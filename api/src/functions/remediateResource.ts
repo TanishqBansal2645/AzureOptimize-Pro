@@ -255,8 +255,8 @@ async function remediateResourceHttp(
   } catch (err) {
     context.error(`Remediation failed for ${type}/${resourceName}:`, err);
     const msg = err instanceof Error ? err.message : String(err);
+    const errorCode = (err as { code?: string }).code ?? 'Unknown';
 
-    // Update implementation record to failed
     if (implId) {
       updateImplementation(subscriptionId, implId, {
         action: `Failed: ${msg}`,
@@ -266,7 +266,14 @@ async function remediateResourceHttp(
       }).catch((e: unknown) => context.error('Failed to update implementation status:', e));
     }
 
-    return errorResponse(`Remediation failed: ${msg}`);
+    return jsonResponse({
+      implementationId: implId,
+      action: 'Remediation failed',
+      status: 'failed' as const,
+      automated: false,
+      errorCode,
+      errorMessage: msg,
+    });
   }
 }
 

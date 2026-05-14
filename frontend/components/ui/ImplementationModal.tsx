@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   X, AlertTriangle, ShieldCheck, ShieldAlert, Clock, RefreshCw,
   CheckCircle2, Terminal, ExternalLink, Info, Zap, DollarSign,
+  Copy, Check, Bot, Lightbulb,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { executeRemediation, RemediationResponse } from '@/lib/api';
@@ -13,6 +14,7 @@ import {
   getRiskProfile,
   buildActionDescription,
 } from '@/lib/remediationMeta';
+import { AZURE_ERROR_PATTERNS } from '@/lib/azureErrorPatterns';
 
 interface Props {
   context: RemediationContext;
@@ -29,6 +31,7 @@ const RISK_STYLES = {
 export function ImplementationModal({ context, onClose, onSuccess }: Props) {
   const [acknowledged, setAcknowledged] = useState(false);
   const [result, setResult]             = useState<RemediationResponse | null>(null);
+  const [copied, setCopied]             = useState(false);
   const qc = useQueryClient();
 
   const profile     = getRiskProfile(context.type, context.resourceType);
@@ -98,58 +101,168 @@ export function ImplementationModal({ context, onClose, onSuccess }: Props) {
         {/* ── Result State ── */}
         {result ? (
           <div className="p-6 space-y-4">
-            <div
-              className={`flex items-start gap-3 p-4 rounded-xl border ${
-                result.status === 'failed'
-                  ? 'bg-red-50 border-red-200'
-                  : result.automated
-                  ? 'bg-green-50 border-green-200'
-                  : 'bg-blue-50 border-blue-200'
-              }`}
-            >
-              {result.status === 'failed' ? (
-                <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-              ) : result.automated ? (
-                <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
-              ) : (
-                <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-              )}
-              <div>
-                <p className={`font-semibold text-sm ${result.status === 'failed' ? 'text-red-800' : result.automated ? 'text-green-800' : 'text-blue-800'}`}>
-                  {result.status === 'failed' ? 'Implementation Failed' : result.automated ? 'Implementation Successful' : 'Manual Action Required'}
-                </p>
-                <p className={`text-sm mt-0.5 ${result.status === 'failed' ? 'text-red-700' : result.automated ? 'text-green-700' : 'text-blue-700'}`}>
-                  {result.action}
-                </p>
-                {result.details && (
-                  <p className="text-xs mt-1 text-slate-500">{result.details}</p>
-                )}
-              </div>
-            </div>
 
-            {/* Manual instructions */}
-            {!result.automated && (result.powershellCommand || result.cliCommand || result.portalUrl) && (
-              <div className="space-y-3">
-                {result.portalUrl && (
-                  <a
-                    href={result.portalUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Open Azure Portal
-                  </a>
-                )}
-                {(result.powershellCommand || result.cliCommand) && (
+            {/* ── Failed ── */}
+            {result.status === 'failed' ? (() => {
+              const pattern = result.errorCode ? AZURE_ERROR_PATTERNS[result.errorCode] : undefined;
+              const aiPrompt = [
+                'Azure cost optimization tool — automated remediation failed.',
+                '',
+                `Operation: ${context.type} on ${context.resourceName} (${context.resourceType})`,
+                `Resource Group: ${context.resourceGroup}`,
+                `Azure Error Code: ${result.errorCode ?? 'Unknown'}`,
+                `Error: ${result.errorMessage ?? result.action}`,
+                '',
+                'What caused this error and how do I fix it in Azure?',
+              ].join('\n');
+
+              const handleCopy = async () => {
+                if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                  await navigator.clipboard.writeText(aiPrompt);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }
+              };
+
+              return (
+                <div className="space-y-4">
+                  {/* Error header */}
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+                    <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm text-red-800">Implementation Failed</p>
+                      <p className="text-sm mt-0.5 text-red-700">{result.errorMessage ?? result.action}</p>
+                      {result.errorCode && result.errorCode !== 'Unknown' && (
+                        <p className="text-xs mt-1.5 font-mono text-red-400">
+                          Azure error code: {result.errorCode}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Known error pattern — show guidance */}
+                  {pattern ? (
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                        <Lightbulb className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-semibold text-amber-800">{pattern.title}</p>
+                          <p className="text-sm text-amber-700 mt-0.5">{pattern.explanation}</p>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                          Suggested fixes
+                        </p>
+                        <ul className="space-y-2">
+                          {pattern.suggestions.map((s, i) => (
+                            <li key={i} className="flex items-start gap-2 text-xs text-slate-700">
+                              <span className="text-slate-400 shrink-0 mt-0.5">→</span>
+                              <span>{s}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      {pattern.docLink && (
+                        <a
+                          href={pattern.docLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          Azure Documentation
+                        </a>
+                      )}
+                    </div>
+                  ) : (
+                    /* Unknown error — Ask AI fallback */
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                        <Bot className="w-4 h-4 text-slate-500" />
+                        Ask AI for help
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        Copy the prompt below and paste it in ChatGPT for a diagnosis and fix.
+                      </p>
+                      <pre className="bg-slate-900 text-slate-200 text-xs p-3 rounded-lg whitespace-pre-wrap leading-relaxed font-mono max-h-36 overflow-y-auto">
+                        {aiPrompt}
+                      </pre>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleCopy}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors"
+                        >
+                          {copied
+                            ? <><Check className="w-3.5 h-3.5 text-green-600" />Copied</>
+                            : <><Copy className="w-3.5 h-3.5" />Copy prompt</>
+                          }
+                        </button>
+                        <a
+                          href="https://chatgpt.com/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium transition-colors"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Open ChatGPT
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })() : (
+              /* ── Success / Manual ── */
+              <div className="space-y-4">
+                <div
+                  className={`flex items-start gap-3 p-4 rounded-xl border ${
+                    result.automated ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'
+                  }`}
+                >
+                  {result.automated ? (
+                    <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                  )}
                   <div>
-                    <p className="text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
-                      <Terminal className="w-3.5 h-3.5" />
-                      Run in PowerShell / Azure CLI:
+                    <p className={`font-semibold text-sm ${result.automated ? 'text-green-800' : 'text-blue-800'}`}>
+                      {result.automated ? 'Implementation Successful' : 'Manual Action Required'}
                     </p>
-                    <pre className="bg-slate-900 text-green-400 text-xs p-3 rounded-lg overflow-x-auto leading-relaxed whitespace-pre-wrap">
-                      {result.powershellCommand ?? result.cliCommand}
-                    </pre>
+                    <p className={`text-sm mt-0.5 ${result.automated ? 'text-green-700' : 'text-blue-700'}`}>
+                      {result.action}
+                    </p>
+                    {result.details && (
+                      <p className="text-xs mt-1 text-slate-500">{result.details}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Manual instructions */}
+                {!result.automated && (result.powershellCommand || result.cliCommand || result.portalUrl) && (
+                  <div className="space-y-3">
+                    {result.portalUrl && (
+                      <a
+                        href={result.portalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        Open Azure Portal
+                      </a>
+                    )}
+                    {(result.powershellCommand || result.cliCommand) && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+                          <Terminal className="w-3.5 h-3.5" />
+                          Run in PowerShell / Azure CLI:
+                        </p>
+                        <pre className="bg-slate-900 text-green-400 text-xs p-3 rounded-lg overflow-x-auto leading-relaxed whitespace-pre-wrap">
+                          {result.powershellCommand ?? result.cliCommand}
+                        </pre>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

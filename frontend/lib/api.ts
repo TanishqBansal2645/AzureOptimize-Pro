@@ -430,6 +430,8 @@ export interface RemediationResponse {
   portalUrl?: string;
   powershellCommand?: string;
   cliCommand?: string;
+  errorCode?: string;
+  errorMessage?: string;
 }
 
 export async function executeRemediation(
