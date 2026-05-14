@@ -26,27 +26,24 @@ import {
 
 // credential imported from shared module
 
-// VM family downgrade mapping: larger → smaller equivalent SKU
+// VM family downgrade mapping: smaller → larger within same generation.
+// findNextSmaller picks index-1 (the next smaller entry).
+// B-series non-power-of-2 sizes (B12ms, B20ms) need explicit listing.
+// All other families are handled by the regex fallback below.
 const VM_FAMILY_DOWNGRADES: Record<string, string[]> = {
-  Standard_D: [
-    'Standard_D2s_v5', 'Standard_D4s_v5', 'Standard_D8s_v5',
-    'Standard_D16s_v5', 'Standard_D32s_v5', 'Standard_D48s_v5', 'Standard_D64s_v5',
-  ],
-  Standard_E: [
-    'Standard_E2s_v5', 'Standard_E4s_v5', 'Standard_E8s_v5',
-    'Standard_E16s_v5', 'Standard_E32s_v5', 'Standard_E48s_v5', 'Standard_E64s_v5',
-  ],
-  Standard_F: [
-    'Standard_F2s_v2', 'Standard_F4s_v2', 'Standard_F8s_v2',
-    'Standard_F16s_v2', 'Standard_F32s_v2', 'Standard_F48s_v2', 'Standard_F64s_v2', 'Standard_F72s_v2',
-  ],
-  Standard_B: [
+  // B-series ms (burstable, non-standard vCPU steps)
+  Standard_Bms: [
     'Standard_B1ms', 'Standard_B2ms', 'Standard_B4ms',
     'Standard_B8ms', 'Standard_B12ms', 'Standard_B16ms', 'Standard_B20ms',
+  ],
+  // B-series s (only B1s and B2s exist in the 's' sub-family)
+  Standard_Bs: [
+    'Standard_B1s', 'Standard_B2s',
   ],
 };
 
 function findNextSmaller(currentSku: string): string | null {
+  // 1. Try explicit family map for B-series non-standard step sizes
   for (const family of Object.values(VM_FAMILY_DOWNGRADES)) {
     const index = family.findIndex(
       (s) => s.toLowerCase() === currentSku.toLowerCase()
@@ -55,7 +52,22 @@ function findNextSmaller(currentSku: string): string | null {
       return family[index - 1];
     }
   }
-  return null;
+
+  // 2. Regex fallback for standard Azure VM SKU naming:
+  //    Standard_{Family}{vCPUs}{suffix}_{Generation}
+  //    e.g. Standard_D8s_v3 → Standard_D4s_v3
+  //         Standard_E16s_v5 → Standard_E8s_v5
+  //         Standard_F32s_v2 → Standard_F16s_v2
+  const match = currentSku.match(/^(Standard_[A-Za-z]+?)(\d+)([a-z]*)(_v\d+)?$/i);
+  if (!match) return null;
+
+  const [, prefix, vcpuStr, suffix, gen] = match;
+  const vcpus = parseInt(vcpuStr, 10);
+
+  // Only halve even vCPU counts; skip if result would be zero
+  if (vcpus % 2 !== 0 || vcpus < 2) return null;
+
+  return `${prefix}${vcpus / 2}${suffix}${gen ?? ''}`;
 }
 
 async function getVMMemoryGB(
