@@ -89,12 +89,17 @@ async function getSavingsHttp(
         paybackAchieved,
         monthlyBreakdown,
         paybackDate: paybackAchieved
-          ? savings.reduce<string | null>((date, s) => {
-              const running = savings
-                .filter((x) => x.implementedAt <= s.implementedAt)
-                .reduce((sum, x) => sum + x.projectedMonthlySaving, 0);
-              return running >= licenseCost && !date ? s.implementedAt : date;
-            }, null)
+          ? (() => {
+              const sorted = [...savings].sort((a, b) =>
+                a.implementedAt.localeCompare(b.implementedAt)
+              );
+              let running = 0;
+              for (const s of sorted) {
+                running += s.projectedMonthlySaving;
+                if (running >= licenseCost) return s.implementedAt;
+              }
+              return null;
+            })()
           : null,
       },
     });
