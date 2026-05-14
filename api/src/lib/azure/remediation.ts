@@ -54,24 +54,37 @@ export async function remediateRightsizing(
   await client.virtualMachines.beginDeallocateAndWait(resourceGroup, vmName);
 
   // Resize to recommended SKU. If this fails (e.g. SKU not available in region),
-  // restart the VM before re-throwing so it is not left permanently deallocated.
+  // submit a start before re-throwing so the VM is not left permanently deallocated.
   try {
     await client.virtualMachines.beginUpdateAndWait(resourceGroup, vmName, {
       hardwareProfile: { vmSize: recommendedSku },
     });
   } catch (err) {
-    client.virtualMachines.beginStart(resourceGroup, vmName).catch(() => {});
+    // Best-effort restart — await so the HTTP request is actually submitted before we return
+    try { await client.virtualMachines.beginStart(resourceGroup, vmName); } catch { /* ignore */ }
     throw err;
   }
 
-  // Start the VM — fire-and-forget so we don't timeout waiting 3+ minutes
-  client.virtualMachines.beginStart(resourceGroup, vmName).catch(() => {});
+  // Await beginStart so the start HTTP request is accepted by Azure before this function returns.
+  // We do NOT call pollUntilDone() — that would wait 3+ min for the VM to be running.
+  // Azure handles the actual boot asynchronously after accepting the request.
+  try {
+    await client.virtualMachines.beginStart(resourceGroup, vmName);
+  } catch (startErr) {
+    console.error(`VM ${vmName} start request failed after rightsizing:`, startErr);
+    return {
+      success: true,
+      automated: true,
+      action: `VM ${vmName} resized to ${recommendedSku}. WARNING: start request failed — start manually.`,
+      details: `Resize succeeded but start failed: ${startErr instanceof Error ? startErr.message : String(startErr)}. Start the VM manually from the Azure portal.`,
+    };
+  }
 
   return {
     success: true,
     automated: true,
-    action: `VM ${vmName} resized to ${recommendedSku}. Start initiated.`,
-    details: 'VM was deallocated, resized, and start was triggered. The VM will be online in 1-3 minutes.',
+    action: `VM ${vmName} resized to ${recommendedSku} and start request accepted.`,
+    details: 'VM was deallocated, resized, and start was accepted by Azure. The VM will be online in 1-3 minutes.',
   };
 }
 
@@ -132,6 +145,7 @@ export async function remediateStorageDiskDowngrade(
   let vmRg = resourceGroup;
   let vmName: string | null = null;
   let vmWasRunning = false;
+  let vmWasStopped = false; // OS-level stop but still allocated — also blocks disk SKU changes
 
   if (attachedVmId) {
     const parts = attachedVmId.split('/');
@@ -142,42 +156,58 @@ export async function remediateStorageDiskDowngrade(
     const vmView = await client.virtualMachines.instanceView(vmRg, vmName);
     const powerCode = vmView.statuses?.find((s) => s.code?.startsWith('PowerState/'))?.code ?? '';
     vmWasRunning = powerCode === 'PowerState/running';
+    vmWasStopped = powerCode === 'PowerState/stopped'; // OS shutdown but VM still allocated
 
-    if (vmWasRunning) {
-      // Must deallocate (not just stop) — a stopped-but-allocated VM still blocks SKU changes
+    if (vmWasRunning || vmWasStopped) {
+      // Both running and stopped-but-allocated VMs block disk SKU changes — must fully deallocate
       await client.virtualMachines.beginDeallocateAndWait(vmRg, vmName);
     }
   }
 
   // Change disk SKU. If this fails after we already deallocated the VM,
-  // restart it before re-throwing so it is not left permanently stopped.
+  // restore to previous state before re-throwing.
   try {
     await client.disks.beginUpdateAndWait(resourceGroup, diskName, {
       sku: { name: 'StandardSSD_LRS' },
     });
   } catch (err) {
+    // Only restart if it was running — don't start a VM that was already stopped
     if (vmWasRunning && vmName) {
-      client.virtualMachines.beginStart(vmRg, vmName).catch(() => {});
+      try { await client.virtualMachines.beginStart(vmRg, vmName); } catch { /* ignore */ }
     }
     throw err;
   }
 
-  // Start the VM again — fire-and-forget to avoid HTTP timeout
+  // Only restart if the VM was running before we touched it; leave a stopped VM stopped
   if (vmWasRunning && vmName) {
-    client.virtualMachines.beginStart(vmRg, vmName).catch(() => {});
+    try {
+      await client.virtualMachines.beginStart(vmRg, vmName);
+    } catch (startErr) {
+      console.error(`VM ${vmName} start request failed after disk downgrade:`, startErr);
+      return {
+        success: true,
+        automated: true,
+        action: `Disk ${diskName} downgraded to Standard SSD. VM '${vmName}' start request failed — start manually.`,
+        details: `Disk SKU changed successfully but VM start failed: ${startErr instanceof Error ? startErr.message : String(startErr)}. Start the VM manually from the Azure portal.`,
+      };
+    }
   }
 
   const action = vmWasRunning
-    ? `Disk ${diskName} downgraded to Standard SSD. VM '${vmName}' was deallocated before change and restart has been initiated.`
-    : vmName
-      ? `Disk ${diskName} downgraded to Standard SSD. VM '${vmName}' was already deallocated — no restart needed.`
-      : `Disk ${diskName} downgraded to Standard SSD (unattached disk — changed directly).`;
+    ? `Disk ${diskName} downgraded to Standard SSD. VM '${vmName}' was deallocated before change and start request accepted.`
+    : vmWasStopped
+      ? `Disk ${diskName} downgraded to Standard SSD. VM '${vmName}' was stopped — temporarily deallocated for SKU change and left deallocated.`
+      : vmName
+        ? `Disk ${diskName} downgraded to Standard SSD. VM '${vmName}' was already deallocated — no restart needed.`
+        : `Disk ${diskName} downgraded to Standard SSD (unattached disk — changed directly).`;
 
   const details = vmWasRunning
-    ? `VM was temporarily deallocated to allow the disk SKU change. Restart triggered — VM will be online in 1-3 minutes.`
-    : vmName
-      ? `VM was already in a deallocated state. SKU changed without any additional stop/start.`
-      : `Disk was unattached. SKU changed directly with no VM impact.`;
+    ? `VM was temporarily deallocated to allow the disk SKU change. Start accepted by Azure — VM will be online in 1-3 minutes.`
+    : vmWasStopped
+      ? `VM was in a stopped (OS-level) state. Temporarily deallocated for the SKU change and left deallocated — start manually when needed.`
+      : vmName
+        ? `VM was already in a deallocated state. SKU changed without any additional stop/start.`
+        : `Disk was unattached. SKU changed directly with no VM impact.`;
 
   return { success: true, automated: true, action, details };
 }
@@ -281,8 +311,9 @@ export async function remediateSqlDatabase(
 
   const sku = resolveSqlSku(recommendedCapacity);
 
+  if (!currentDb.location) throw new Error(`Cannot determine location for database ${databaseName}`);
   await client.databases.beginCreateOrUpdateAndWait(resourceGroup, serverName, databaseName, {
-    location: currentDb.location ?? 'eastus',
+    location: currentDb.location,
     sku,
   });
 
