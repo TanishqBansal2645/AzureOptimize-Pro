@@ -145,13 +145,4 @@ export const AZURE_ERROR_PATTERNS: Record<string, ErrorPattern> = {
     docLink: 'https://learn.microsoft.com/en-us/azure/azure-sql/database/resource-limits-dtu-single-databases',
   },
 
-  StorageErrorCode: {
-    title: 'Storage Operation Failed',
-    explanation: 'The Azure Storage service returned an error during the operation.',
-    suggestions: [
-      'Verify the storage account exists and is accessible',
-      'Check storage account firewall rules — the Function App may need network access',
-      'Retry the operation; storage errors are often transient',
-    ],
-  },
 };

@@ -117,10 +117,14 @@ export function ImplementationModal({ context, onClose, onSuccess }: Props) {
               ].join('\n');
 
               const handleCopy = async () => {
-                if (typeof navigator !== 'undefined' && navigator.clipboard) {
-                  await navigator.clipboard.writeText(aiPrompt);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
+                try {
+                  if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                    await navigator.clipboard.writeText(aiPrompt);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }
+                } catch {
+                  // Clipboard access denied or page not focused — silently ignore
                 }
               };
 
