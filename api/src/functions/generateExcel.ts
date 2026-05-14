@@ -104,7 +104,12 @@ async function generateExcelHttp(
 
   try {
     const body = (await request.json()) as { month?: string } | null;
-    reportMonth = (body as { month?: string } | null)?.month ?? reportMonth;
+    if (body?.month !== undefined) {
+      if (!/^\d{4}-\d{2}$/.test(body.month)) {
+        return errorResponse('month must be in YYYY-MM format', 400);
+      }
+      reportMonth = body.month;
+    }
 
     reportId = generateId();
     const fileName = friendlyFileName(reportMonth);

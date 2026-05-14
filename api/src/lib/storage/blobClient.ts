@@ -23,11 +23,7 @@ function getBlobServiceClient(): BlobServiceClient {
 async function ensureContainer(containerName: string): Promise<ContainerClient> {
   const client = getBlobServiceClient();
   const container = client.getContainerClient(containerName);
-  try {
-    await container.createIfNotExists();
-  } catch {
-    // Container may already exist — ignore
-  }
+  await container.createIfNotExists();
   return container;
 }
 
