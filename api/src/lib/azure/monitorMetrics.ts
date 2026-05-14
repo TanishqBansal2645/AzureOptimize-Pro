@@ -102,7 +102,8 @@ export async function getVMMetrics(
       dataPoints: cpuValues.length,
     };
   } catch (err) {
-    console.error(`Error fetching VM metrics for ${vmResourceId}:`, err);
+    const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    console.error(`[monitorMetrics] queryResource failed for ${vmResourceId}: ${errMsg}`);
     return {
       vmResourceId,
       cpuAvg: 0,

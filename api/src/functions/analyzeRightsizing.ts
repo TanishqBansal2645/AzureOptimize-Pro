@@ -151,15 +151,24 @@ export async function analyzeAndStoreRightsizing(context: InvocationContext): Pr
       const metrics = await getVMMetrics(vm.id, totalMemoryBytes);
 
       // Skip VMs with no monitoring data (deallocated/newly created — no meaningful signal)
-      if (metrics.dataPoints === 0) continue;
+      if (metrics.dataPoints === 0) {
+        context.warn(`Rightsizing: ${vm.name} (${vm.sku}) — skipped, dataPoints=0. ` +
+          `If this VM has been running >1h, check Monitor permissions or cold-start timing.`);
+        continue;
+      }
 
       // Only flag if both p95 CPU < 40% AND p95 Memory < 60%
       if (metrics.cpuP95 >= 40 || metrics.memoryP95 >= 60) {
+        context.log(`Rightsizing: ${vm.name} (${vm.sku}) — skipped, ` +
+          `cpuP95=${metrics.cpuP95}% memP95=${metrics.memoryP95}% (thresholds: CPU<40, mem<60)`);
         continue;
       }
 
       const recommendedSku = findNextSmaller(vm.sku);
-      if (!recommendedSku) continue;
+      if (!recommendedSku) {
+        context.log(`Rightsizing: ${vm.name} (${vm.sku}) — skipped, no smaller SKU in family`);
+        continue;
+      }
 
       const [currentPrice, recommendedPrice] = await Promise.all([
         getVMPrice(vm.sku, vm.location, 'Linux'),
@@ -167,6 +176,10 @@ export async function analyzeAndStoreRightsizing(context: InvocationContext): Pr
       ]);
 
       if (currentPrice <= 0 || recommendedPrice <= 0 || recommendedPrice >= currentPrice) {
+        context.warn(`Rightsizing: ${vm.name} — skipped, price check failed. ` +
+          `current=${vm.sku}=$${currentPrice.toFixed(2)}/mo ` +
+          `recommended=${recommendedSku}=$${recommendedPrice.toFixed(2)}/mo ` +
+          `region=${vm.location}`);
         continue;
       }
 

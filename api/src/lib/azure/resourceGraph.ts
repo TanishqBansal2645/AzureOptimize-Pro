@@ -189,7 +189,6 @@ export async function findWindowsVMsWithoutAHB(
     Resources
     | where type =~ 'microsoft.compute/virtualmachines'
     | where properties.storageProfile.osDisk.osType =~ 'Windows'
-          or isnotnull(properties.osProfile.windowsConfiguration)
     | where isnull(properties.licenseType)
           or properties.licenseType =~ ''
           or properties.licenseType =~ 'None'
