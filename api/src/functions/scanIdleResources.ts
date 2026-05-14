@@ -21,6 +21,8 @@ import {
   upsertIdleResource,
   getIdleResources,
   updateIdleResourceStatus,
+  deleteStaleEntities,
+  TABLES,
 } from '../lib/storage/tableClient';
 import {
   validateUser,
@@ -85,6 +87,8 @@ export async function scanAndStoreIdleResources(context: InvocationContext): Pro
 
   context.log(`Found ${allResources.length} idle resources`);
 
+  const upsertedKeys = new Map<string, Set<string>>();
+
   for (const resource of allResources) {
     const estimatedCost = estimateIdleResourceCost(resource.type, resource.details as Record<string, unknown>);
     const rowKey = createRowKey(resource.id);
@@ -105,9 +109,19 @@ export async function scanAndStoreIdleResources(context: InvocationContext): Pro
         status: 'active',
         details: JSON.stringify(resource.details),
       });
+      if (!upsertedKeys.has(resource.subscriptionId)) upsertedKeys.set(resource.subscriptionId, new Set());
+      upsertedKeys.get(resource.subscriptionId)!.add(rowKey);
     } catch (err) {
       context.error(`Failed to upsert idle resource ${resource.id}:`, err);
     }
+  }
+
+  for (const subscriptionId of subscriptionIds) {
+    await deleteStaleEntities(
+      TABLES.idleResources, subscriptionId,
+      upsertedKeys.get(subscriptionId) ?? new Set<string>(),
+      (msg, err) => context.error(msg, err)
+    );
   }
 
   context.log('Idle resource scan complete');

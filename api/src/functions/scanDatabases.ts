@@ -16,6 +16,7 @@ import {
   upsertDatabaseRecommendation,
   getDatabaseRecommendations,
   markEntityStatus,
+  deleteStaleEntities,
   TABLES,
 } from '../lib/storage/tableClient';
 import {
@@ -44,6 +45,14 @@ export async function scanAndStoreDatabases(context: InvocationContext): Promise
   if (subscriptionIds.length === 0) {
     context.warn('No subscriptions found');
     return;
+  }
+
+  const upsertedKeys = new Map<string, Set<string>>();
+  let allScansOk = true;
+
+  function trackKey(subscriptionId: string, rowKey: string): void {
+    if (!upsertedKeys.has(subscriptionId)) upsertedKeys.set(subscriptionId, new Set());
+    upsertedKeys.get(subscriptionId)!.add(rowKey);
   }
 
   // Scan Azure SQL databases
@@ -98,6 +107,7 @@ export async function scanAndStoreDatabases(context: InvocationContext): Promise
             scannedAt: new Date().toISOString(),
             status: 'active',
           });
+          trackKey(String(db['subscriptionId'] ?? ''), rowKey);
         }
       } catch (err) {
         context.error(`Error processing SQL database ${db['name']}:`, err);
@@ -105,6 +115,7 @@ export async function scanAndStoreDatabases(context: InvocationContext): Promise
     }
   } catch (err) {
     context.error('Error scanning SQL databases:', err);
+    allScansOk = false;
   }
 
   // Scan Cosmos DB accounts (basic check)
@@ -141,12 +152,24 @@ export async function scanAndStoreDatabases(context: InvocationContext): Promise
           scannedAt: new Date().toISOString(),
           status: 'active',
         });
+        trackKey(String(account['subscriptionId'] ?? ''), rowKey);
       } catch (err) {
         context.error(`Error processing Cosmos DB account ${account['name']}:`, err);
       }
     }
   } catch (err) {
     context.error('Error scanning Cosmos DB:', err);
+    allScansOk = false;
+  }
+
+  if (allScansOk) {
+    for (const subscriptionId of subscriptionIds) {
+      await deleteStaleEntities(
+        TABLES.databases, subscriptionId,
+        upsertedKeys.get(subscriptionId) ?? new Set<string>(),
+        (msg, err) => context.error(msg, err)
+      );
+    }
   }
 
   context.log('Database scan complete');

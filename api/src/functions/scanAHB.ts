@@ -17,6 +17,7 @@ import {
   upsertAHB,
   getAHBRecommendations,
   markEntityStatus,
+  deleteStaleEntities,
   TABLES,
 } from '../lib/storage/tableClient';
 import {
@@ -66,6 +67,8 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
   }
 
   context.log(`Found ${windowsVMs.length} Windows VMs and ${sqlVMs.length} SQL VMs without AHB`);
+
+  const upsertedKeys = new Map<string, Set<string>>();
 
   if (windowsVMs.length === 0 && sqlVMs.length === 0) {
     context.warn(
@@ -129,6 +132,8 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
         scannedAt: new Date().toISOString(),
         status: 'active',
       });
+      if (!upsertedKeys.has(vm.subscriptionId)) upsertedKeys.set(vm.subscriptionId, new Set());
+      upsertedKeys.get(vm.subscriptionId)!.add(rowKey);
     } catch (err) {
       context.error(`Error processing Windows VM ${vm.name}:`, err);
     }
@@ -167,9 +172,19 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
         scannedAt: new Date().toISOString(),
         status: 'active',
       });
+      if (!upsertedKeys.has(vm.subscriptionId)) upsertedKeys.set(vm.subscriptionId, new Set());
+      upsertedKeys.get(vm.subscriptionId)!.add(rowKey);
     } catch (err) {
       context.error(`Error processing SQL VM ${vm.name}:`, err);
     }
+  }
+
+  for (const subscriptionId of subscriptionIds) {
+    await deleteStaleEntities(
+      TABLES.ahb, subscriptionId,
+      upsertedKeys.get(subscriptionId) ?? new Set<string>(),
+      (msg, err) => context.error(msg, err)
+    );
   }
 
   context.log('AHB scan complete');

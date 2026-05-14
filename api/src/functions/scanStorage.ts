@@ -20,6 +20,7 @@ import {
   upsertStorageRecommendation,
   getStorageRecommendations,
   markEntityStatus,
+  deleteStaleEntities,
   TABLES,
 } from '../lib/storage/tableClient';
 import {
@@ -48,6 +49,14 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
   if (subscriptionIds.length === 0) {
     context.warn('No subscriptions found');
     return;
+  }
+
+  const upsertedKeys = new Map<string, Set<string>>();
+  let allScansOk = true;
+
+  function trackKey(subscriptionId: string, rowKey: string): void {
+    if (!upsertedKeys.has(subscriptionId)) upsertedKeys.set(subscriptionId, new Set());
+    upsertedKeys.get(subscriptionId)!.add(rowKey);
   }
 
   // Check premium disks for low IOPS usage
@@ -104,6 +113,7 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
               scannedAt: new Date().toISOString(),
               status: 'active',
             });
+            trackKey(String(disk['subscriptionId'] ?? ''), rowKey);
           }
         }
       } catch (err) {
@@ -112,6 +122,7 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
     }
   } catch (err) {
     context.error('Error scanning premium disks:', err);
+    allScansOk = false;
   }
 
   // Check storage accounts for no activity
@@ -146,6 +157,7 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
             scannedAt: new Date().toISOString(),
             status: 'active',
           });
+          trackKey(String(account['subscriptionId'] ?? ''), rowKey);
         }
       } catch (err) {
         context.error('Error processing storage account:', err);
@@ -153,6 +165,7 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
     }
   } catch (err) {
     context.error('Error scanning storage accounts:', err);
+    allScansOk = false;
   }
 
   // Check Log Analytics workspaces for excessive retention
@@ -190,12 +203,24 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
           scannedAt: new Date().toISOString(),
           status: 'active',
         });
+        trackKey(String(ws['subscriptionId'] ?? ''), rowKey);
       } catch (err) {
         context.error('Error processing Log Analytics workspace:', err);
       }
     }
   } catch (err) {
     context.error('Error scanning Log Analytics workspaces:', err);
+    allScansOk = false;
+  }
+
+  if (allScansOk) {
+    for (const subscriptionId of subscriptionIds) {
+      await deleteStaleEntities(
+        TABLES.storage, subscriptionId,
+        upsertedKeys.get(subscriptionId) ?? new Set<string>(),
+        (msg, err) => context.error(msg, err)
+      );
+    }
   }
 
   context.log('Storage scan complete');

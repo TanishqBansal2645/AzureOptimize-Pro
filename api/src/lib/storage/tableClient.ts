@@ -272,7 +272,7 @@ export async function upsertIdleResource(entity: IdleResourceEntity): Promise<vo
   const client = await ensureTable(TABLES.idleResources);
   try {
     const existing = await client.getEntity<IdleResourceEntity>(entity.partitionKey, entity.rowKey);
-    if (existing.status === 'dismissed') entity.status = 'dismissed';
+    if (existing.status === 'dismissed' || existing.status === 'reviewed') entity.status = existing.status;
   } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
@@ -304,7 +304,7 @@ export async function upsertRightsizing(entity: RightsizingEntity): Promise<void
   const client = await ensureTable(TABLES.rightsizing);
   try {
     const existing = await client.getEntity<RightsizingEntity>(entity.partitionKey, entity.rowKey);
-    if (existing.status === 'dismissed') entity.status = 'dismissed';
+    if (existing.status === 'dismissed' || existing.status === 'implemented') entity.status = existing.status;
   } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
@@ -327,6 +327,10 @@ export async function getRightsizing(subscriptionId?: string): Promise<Rightsizi
 
 export async function upsertReservation(entity: ReservationEntity): Promise<void> {
   const client = await ensureTable(TABLES.reservations);
+  try {
+    const existing = await client.getEntity<ReservationEntity>(entity.partitionKey, entity.rowKey);
+    if (existing.status === 'purchased') entity.status = 'purchased';
+  } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
 
@@ -348,7 +352,7 @@ export async function upsertAHB(entity: AHBEntity): Promise<void> {
   const client = await ensureTable(TABLES.ahb);
   try {
     const existing = await client.getEntity<AHBEntity>(entity.partitionKey, entity.rowKey);
-    if (existing.status === 'dismissed') entity.status = 'dismissed';
+    if (existing.status === 'dismissed' || existing.status === 'applied') entity.status = existing.status;
   } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
@@ -373,7 +377,7 @@ export async function upsertStorageRecommendation(
   const client = await ensureTable(TABLES.storage);
   try {
     const existing = await client.getEntity<StorageRecommendationEntity>(entity.partitionKey, entity.rowKey);
-    if (existing.status === 'dismissed') entity.status = 'dismissed';
+    if (existing.status === 'dismissed' || existing.status === 'implemented') entity.status = existing.status;
   } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
@@ -398,7 +402,7 @@ export async function upsertDatabaseRecommendation(
   const client = await ensureTable(TABLES.databases);
   try {
     const existing = await client.getEntity<DatabaseRecommendationEntity>(entity.partitionKey, entity.rowKey);
-    if (existing.status === 'dismissed') entity.status = 'dismissed';
+    if (existing.status === 'dismissed' || existing.status === 'implemented') entity.status = existing.status;
   } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
@@ -481,10 +485,9 @@ export async function getReports(): Promise<ReportEntity[]> {
 
 export async function upsertASPRightsizing(entity: ASPRightsizingEntity): Promise<void> {
   const client = await ensureTable(TABLES.asp);
-  // Preserve 'dismissed' status — rescans update data but don't restore dismissed items
   try {
     const existing = await client.getEntity<ASPRightsizingEntity>(entity.partitionKey, entity.rowKey);
-    if (existing.status === 'dismissed') entity.status = 'dismissed';
+    if (existing.status === 'dismissed' || existing.status === 'implemented') entity.status = existing.status;
   } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
@@ -608,6 +611,33 @@ export async function getImplementations(): Promise<ImplementationEntity[]> {
   return results.sort(
     (a, b) => new Date(b.initiatedAt).getTime() - new Date(a.initiatedAt).getTime()
   );
+}
+
+// ─── Stale Recommendation Cleanup ────────────────────────────────────────────
+
+export async function deleteStaleEntities(
+  tableName: string,
+  subscriptionId: string,
+  currentRowKeys: Set<string>,
+  logError: (msg: string, err?: unknown) => void
+): Promise<void> {
+  try {
+    const client = await ensureTable(tableName);
+    const iter = client.listEntities<TableEntity>({
+      queryOptions: { filter: odata`PartitionKey eq ${subscriptionId}` },
+    });
+    for await (const entity of iter) {
+      if (!currentRowKeys.has(entity.rowKey as string)) {
+        try {
+          await client.deleteEntity(entity.partitionKey as string, entity.rowKey as string);
+        } catch (err) {
+          logError(`Failed to delete stale entity ${entity.rowKey as string} from ${tableName}:`, err);
+        }
+      }
+    }
+  } catch (err) {
+    logError(`Stale cleanup query failed for ${tableName} (${subscriptionId}):`, err);
+  }
 }
 
 export { TABLES };

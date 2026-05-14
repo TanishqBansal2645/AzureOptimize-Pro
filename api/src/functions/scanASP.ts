@@ -14,6 +14,7 @@ import {
   upsertASPRightsizing,
   getASPRightsizing,
   markEntityStatus,
+  deleteStaleEntities,
   TABLES,
 } from '../lib/storage/tableClient';
 import {
@@ -79,6 +80,7 @@ export async function analyzeAndStoreASP(context: InvocationContext): Promise<vo
   }
   context.log(`Analyzing ${plans.length} App Service Plans...`);
 
+  const upsertedKeys = new Map<string, Set<string>>();
   let analyzed = 0;
   for (const plan of plans) {
     try {
@@ -145,11 +147,21 @@ export async function analyzeAndStoreASP(context: InvocationContext): Promise<vo
         analyzedAt: new Date().toISOString(),
         status: 'active',
       });
+      if (!upsertedKeys.has(plan.subscriptionId)) upsertedKeys.set(plan.subscriptionId, new Set());
+      upsertedKeys.get(plan.subscriptionId)!.add(rowKey);
 
       analyzed++;
     } catch (err) {
       context.error(`Error analyzing ASP ${plan.name}:`, err);
     }
+  }
+
+  for (const subscriptionId of subscriptionIds) {
+    await deleteStaleEntities(
+      TABLES.asp, subscriptionId,
+      upsertedKeys.get(subscriptionId) ?? new Set<string>(),
+      (msg, err) => context.error(msg, err)
+    );
   }
 
   context.log(`ASP analysis complete. Found ${analyzed} recommendations.`);

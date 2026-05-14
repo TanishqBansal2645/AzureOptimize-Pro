@@ -15,6 +15,7 @@ import {
   upsertRightsizing,
   getRightsizing,
   markEntityStatus,
+  deleteStaleEntities,
   TABLES,
 } from '../lib/storage/tableClient';
 import {
@@ -137,6 +138,7 @@ export async function analyzeAndStoreRightsizing(context: InvocationContext): Pr
   }
   context.log(`Analyzing ${vms.length} VMs...`);
 
+  const upsertedKeys = new Map<string, Set<string>>();
   let analyzed = 0;
   for (const vm of vms) {
     try {
@@ -218,11 +220,21 @@ export async function analyzeAndStoreRightsizing(context: InvocationContext): Pr
         analyzedAt: new Date().toISOString(),
         status: 'active',
       });
+      if (!upsertedKeys.has(vm.subscriptionId)) upsertedKeys.set(vm.subscriptionId, new Set());
+      upsertedKeys.get(vm.subscriptionId)!.add(rowKey);
 
       analyzed++;
     } catch (err) {
       context.error(`Error analyzing VM ${vm.name}:`, err);
     }
+  }
+
+  for (const subscriptionId of subscriptionIds) {
+    await deleteStaleEntities(
+      TABLES.rightsizing, subscriptionId,
+      upsertedKeys.get(subscriptionId) ?? new Set<string>(),
+      (msg, err) => context.error(msg, err)
+    );
   }
 
   context.log(`Rightsizing analysis complete. Found ${analyzed} recommendations.`);

@@ -11,7 +11,7 @@ import {
   getCostRecommendations,
   parseReservationRecommendation,
 } from '../lib/azure/advisor';
-import { upsertReservation, getReservations } from '../lib/storage/tableClient';
+import { upsertReservation, getReservations, deleteStaleEntities, TABLES } from '../lib/storage/tableClient';
 import {
   validateUser,
   unauthorizedResponse,
@@ -37,6 +37,7 @@ export async function fetchAndStoreRecommendations(context: InvocationContext): 
   }
 
   for (const subscriptionId of subscriptionIds) {
+    const upsertedKeys = new Set<string>();
     try {
       const recommendations = await getCostRecommendations(subscriptionId);
       context.log(`Found ${recommendations.length} cost recommendations for ${subscriptionId}`);
@@ -75,10 +76,16 @@ export async function fetchAndStoreRecommendations(context: InvocationContext): 
             fetchedAt: new Date().toISOString(),
             status: 'active',
           });
+          upsertedKeys.add(rowKey);
         } catch (err) {
           context.error(`Error upserting reservation recommendation ${rec.id}:`, err);
         }
       }
+
+      await deleteStaleEntities(
+        TABLES.reservations, subscriptionId, upsertedKeys,
+        (msg, err) => context.error(msg, err)
+      );
     } catch (err) {
       context.error(`Error processing recommendations for ${subscriptionId}:`, err);
     }
