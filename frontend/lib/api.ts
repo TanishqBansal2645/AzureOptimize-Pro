@@ -271,6 +271,84 @@ export async function fetchDatabases(): Promise<DatabaseResponse> {
   return apiFetch<DatabaseResponse>('databases');
 }
 
+// ─── ASP Rightsizing ──────────────────────────────────────────────────────────
+
+export interface ASPItem {
+  id: string;
+  resourceId: string;
+  aspName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+  location: string;
+  currentSku: string;
+  recommendedSku: string;
+  currentTier: string;
+  recommendedTier: string;
+  numberOfSites: number;
+  cpuAvg: number;
+  memoryAvg: number;
+  currentMonthlyCost: number;
+  recommendedMonthlyCost: number;
+  monthlySaving: number;
+  analyzedAt: string;
+  status: string;
+}
+
+export interface ASPResponse {
+  data: ASPItem[];
+  summary: { totalCount: number; totalMonthlySaving: number };
+  lastAnalyzed: string | null;
+}
+
+export async function fetchASP(): Promise<ASPResponse> {
+  return apiFetch<ASPResponse>('asp');
+}
+
+// ─── Dismissed Recommendations ────────────────────────────────────────────────
+
+export type DismissedType = 'rightsizing' | 'ahb' | 'storage' | 'idle' | 'database' | 'asp';
+
+export interface DismissedItem {
+  id: string;
+  type: DismissedType;
+  resourceName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+  estimatedMonthlySaving: number;
+  details: string;
+}
+
+export interface DismissedResponse {
+  data: DismissedItem[];
+  summary: { totalCount: number; totalMonthlySaving: number };
+}
+
+export async function fetchDismissed(): Promise<DismissedResponse> {
+  return apiFetch<DismissedResponse>('dismissed');
+}
+
+export async function dismissRecommendation(
+  type: DismissedType,
+  id: string,
+  subscriptionId: string
+): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>('recommendations/dismiss', {
+    method: 'POST',
+    body: JSON.stringify({ type, id, subscriptionId }),
+  });
+}
+
+export async function restoreRecommendation(
+  type: DismissedType,
+  id: string,
+  subscriptionId: string
+): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>('recommendations/restore', {
+    method: 'POST',
+    body: JSON.stringify({ type, id, subscriptionId }),
+  });
+}
+
 // ─── Budgets ──────────────────────────────────────────────────────────────────
 
 export interface BudgetItem {
@@ -353,7 +431,7 @@ export async function fetchSavings(): Promise<SavingsResponse> {
 // ─── Mark Implemented ────────────────────────────────────────────────────────
 
 export interface MarkImplementedPayload {
-  recommendationType: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations';
+  recommendationType: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations' | 'asp';
   id: string;
   subscriptionId: string;
   resourceName: string;
@@ -407,7 +485,7 @@ export async function generateReport(month: string): Promise<{
 // ─── Remediation (automated implementation) ──────────────────────────────────
 
 export interface RemediatePayload {
-  type: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations';
+  type: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations' | 'asp';
   recommendationId: string;
   resourceId: string;
   resourceName: string;

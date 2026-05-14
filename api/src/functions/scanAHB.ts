@@ -103,7 +103,7 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
         continue;
       }
 
-      const rowKey = Buffer.from(vm.id)
+      const rowKey = Buffer.from(vm.id.toLowerCase())
         .toString('base64')
         .replace(/[/+=]/g, '_')
         .slice(0, 512);
@@ -141,7 +141,7 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
       const saving = advisorSaving ?? 200;
       context.log(`AHB SQL: ${vm.name} — saving=$${saving}/mo (${advisorSaving !== undefined ? 'advisor' : 'estimate'})`);
 
-      const rowKey = Buffer.from(vm.id)
+      const rowKey = Buffer.from(vm.id.toLowerCase())
         .toString('base64')
         .replace(/[/+=]/g, '_')
         .slice(0, 512);

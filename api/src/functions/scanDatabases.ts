@@ -69,7 +69,7 @@ export async function scanAndStoreDatabases(context: InvocationContext): Promise
           const recommendedCapacity = Math.max(5, Math.floor(currentCapacity / 2));
           const estimatedSaving = (currentCapacity - recommendedCapacity) * 15;
 
-          const rowKey = Buffer.from(dbId)
+          const rowKey = Buffer.from(dbId.toLowerCase())
             .toString('base64')
             .replace(/[/+=]/g, '_')
             .slice(0, 512);
@@ -119,7 +119,7 @@ export async function scanAndStoreDatabases(context: InvocationContext): Promise
 
         if (kind.toLowerCase().includes('serverless')) continue;
 
-        const rowKey = Buffer.from(accountId)
+        const rowKey = Buffer.from(accountId.toLowerCase())
           .toString('base64')
           .replace(/[/+=]/g, '_')
           .slice(0, 512);

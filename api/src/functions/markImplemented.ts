@@ -17,7 +17,7 @@ import {
 } from '../lib/auth/validateUser';
 
 interface MarkImplementedRequest {
-  recommendationType: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations';
+  recommendationType: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations' | 'asp';
   id: string;
   subscriptionId: string;
   resourceName: string;
@@ -41,6 +41,7 @@ const TABLE_MAP: Record<string, string> = {
   storage: TABLES.storage,
   databases: TABLES.databases,
   reservations: TABLES.reservations,
+  asp: TABLES.asp,
 };
 
 async function markImplementedHttp(

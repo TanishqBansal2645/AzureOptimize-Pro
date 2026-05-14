@@ -324,3 +324,38 @@ export async function findLogAnalyticsWorkspaces(
   `;
   return (await runResourceGraphQuery(subscriptionIds, query)) as Array<Record<string, unknown>>;
 }
+
+export interface ASPResource {
+  id: string;
+  name: string;
+  resourceGroup: string;
+  subscriptionId: string;
+  location: string;
+  sku: string;
+  tier: string;
+  numberOfSites: number;
+}
+
+export async function findAppServicePlansForRightsizing(
+  subscriptionIds: string[]
+): Promise<ASPResource[]> {
+  const query = `
+    Resources
+    | where type =~ 'microsoft.web/serverfarms'
+    | where properties.numberOfSites > 0
+    | where sku.tier !in ('Free', 'Shared', 'Dynamic')
+    | project id, name, resourceGroup, subscriptionId, location,
+              sku=sku.name, tier=sku.tier, numberOfSites=properties.numberOfSites
+  `;
+  const results = await runResourceGraphQuery(subscriptionIds, query);
+  return (results as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r['id'] ?? ''),
+    name: String(r['name'] ?? ''),
+    resourceGroup: String(r['resourceGroup'] ?? ''),
+    subscriptionId: String(r['subscriptionId'] ?? ''),
+    location: String(r['location'] ?? ''),
+    sku: String(r['sku'] ?? ''),
+    tier: String(r['tier'] ?? ''),
+    numberOfSites: Number(r['numberOfSites'] ?? 0),
+  }));
+}

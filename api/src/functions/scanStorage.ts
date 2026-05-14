@@ -79,7 +79,7 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
           const saving = premiumCost - standardSSDCost;
 
           if (saving > 0) {
-            const rowKey = Buffer.from(diskId)
+            const rowKey = Buffer.from(diskId.toLowerCase())
               .toString('base64')
               .replace(/[/+=]/g, '_')
               .slice(0, 512);
@@ -125,7 +125,7 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
         const metrics = await getStorageAccountMetrics(accountId);
 
         if (!metrics.hasTransactions) {
-          const rowKey = Buffer.from(accountId)
+          const rowKey = Buffer.from(accountId.toLowerCase())
             .toString('base64')
             .replace(/[/+=]/g, '_')
             .slice(0, 512);
@@ -169,7 +169,7 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
         const estimatedSaving = extraDays * 0.1 * 10; // ~$0.10/GB/day estimate for 10 GB workspace
 
         const wsId = String(ws['id'] ?? '');
-        const rowKey = Buffer.from(wsId)
+        const rowKey = Buffer.from(wsId.toLowerCase())
           .toString('base64')
           .replace(/[/+=]/g, '_')
           .slice(0, 512);

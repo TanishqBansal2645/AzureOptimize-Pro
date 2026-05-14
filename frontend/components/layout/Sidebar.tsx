@@ -19,6 +19,8 @@ import {
   ChevronRight,
   CloudCog,
   Zap,
+  Globe,
+  XCircle,
 } from 'lucide-react';
 
 const sections = [
@@ -38,12 +40,14 @@ const sections = [
       { href: '/reservations', label: 'Reservations', icon: BookMarked },
       { href: '/storage', label: 'Storage', icon: HardDrive },
       { href: '/databases', label: 'Databases', icon: Database },
+      { href: '/asp-rightsizing', label: 'ASP Rightsizing', icon: Globe },
     ],
   },
   {
     label: 'Management',
     items: [
       { href: '/budgets', label: 'Budgets', icon: Wallet },
+      { href: '/dismissed', label: 'Dismissed', icon: XCircle },
       { href: '/reports', label: 'Reports', icon: FileSpreadsheet },
       { href: '/implementations', label: 'Implementations', icon: Zap },
     ],

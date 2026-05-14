@@ -9,7 +9,7 @@ export interface RiskProfile {
 }
 
 export interface RemediationContext {
-  type: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations';
+  type: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations' | 'asp';
   recommendationId: string;   // rowKey of the recommendation entity
   resourceId: string;
   resourceName: string;
@@ -227,6 +227,22 @@ export function getRiskProfile(
           'Savings begin immediately once the RI is purchased',
         ],
       };
+
+    case 'asp':
+      return {
+        risk: 'Low',
+        downtime: 'None',
+        reversible: true,
+        recommendedTime: 'Anytime',
+        automated: false,
+        actionVerb: 'Scale down (manual)',
+        impacts: [
+          `App Service Plan will be scaled from ${resourceType} to a smaller SKU within the same tier family`,
+          'Apps continue running during the scale operation — no restart required',
+          'CPU and memory quotas will be reduced; verify no app is at the limit',
+          'Reversible at any time through the Azure Portal',
+        ],
+      };
   }
 }
 
@@ -250,5 +266,7 @@ export function buildActionDescription(ctx: RemediationContext): string {
       return `Migrate Cosmos DB ${ctx.resourceName} to Serverless`;
     case 'reservations':
       return `Purchase ${ctx.term ?? '1Year'} Reserved Instance for ${ctx.resourceName}`;
+    case 'asp':
+      return `Scale App Service Plan ${ctx.resourceName} from ${ctx.currentSku ?? '?'} → ${ctx.recommendedSku ?? '?'}`;
   }
 }

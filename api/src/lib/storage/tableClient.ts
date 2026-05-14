@@ -130,6 +130,27 @@ export interface StorageRecommendationEntity extends TableEntity {
   status: 'active' | 'implemented' | 'dismissed';
 }
 
+export interface ASPRightsizingEntity extends TableEntity {
+  resourceId: string;
+  aspName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+  subscriptionName: string;
+  location: string;
+  currentSku: string;
+  recommendedSku: string;
+  currentTier: string;
+  recommendedTier: string;
+  numberOfSites: number;
+  cpuAvg: number;
+  memoryAvg: number;
+  currentMonthlyCost: number;
+  recommendedMonthlyCost: number;
+  monthlySaving: number;
+  analyzedAt: string;
+  status: 'active' | 'implemented' | 'dismissed';
+}
+
 export interface DatabaseRecommendationEntity extends TableEntity {
   resourceId: string;
   resourceName: string;
@@ -218,6 +239,7 @@ const TABLES = {
   ahb: 'ahbrecommendations',
   storage: 'storagerecommendations',
   databases: 'databaserecommendations',
+  asp: 'asprightizing',
   savings: 'savings',
   budgets: 'budgets',
   reports: 'reports',
@@ -276,6 +298,10 @@ export async function updateIdleResourceStatus(
 
 export async function upsertRightsizing(entity: RightsizingEntity): Promise<void> {
   const client = await ensureTable(TABLES.rightsizing);
+  try {
+    const existing = await client.getEntity<RightsizingEntity>(entity.partitionKey, entity.rowKey);
+    if (existing.status === 'dismissed') entity.status = 'dismissed';
+  } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
 
@@ -316,6 +342,10 @@ export async function getReservations(): Promise<ReservationEntity[]> {
 
 export async function upsertAHB(entity: AHBEntity): Promise<void> {
   const client = await ensureTable(TABLES.ahb);
+  try {
+    const existing = await client.getEntity<AHBEntity>(entity.partitionKey, entity.rowKey);
+    if (existing.status === 'dismissed') entity.status = 'dismissed';
+  } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
 
@@ -337,6 +367,10 @@ export async function upsertStorageRecommendation(
   entity: StorageRecommendationEntity
 ): Promise<void> {
   const client = await ensureTable(TABLES.storage);
+  try {
+    const existing = await client.getEntity<StorageRecommendationEntity>(entity.partitionKey, entity.rowKey);
+    if (existing.status === 'dismissed') entity.status = 'dismissed';
+  } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
 
@@ -358,6 +392,10 @@ export async function upsertDatabaseRecommendation(
   entity: DatabaseRecommendationEntity
 ): Promise<void> {
   const client = await ensureTable(TABLES.databases);
+  try {
+    const existing = await client.getEntity<DatabaseRecommendationEntity>(entity.partitionKey, entity.rowKey);
+    if (existing.status === 'dismissed') entity.status = 'dismissed';
+  } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }
 
@@ -433,6 +471,99 @@ export async function getReports(): Promise<ReportEntity[]> {
     (a, b) =>
       new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()
   );
+}
+
+// ─── ASP Rightsizing Operations ──────────────────────────────────────────────
+
+export async function upsertASPRightsizing(entity: ASPRightsizingEntity): Promise<void> {
+  const client = await ensureTable(TABLES.asp);
+  // Preserve 'dismissed' status — rescans update data but don't restore dismissed items
+  try {
+    const existing = await client.getEntity<ASPRightsizingEntity>(entity.partitionKey, entity.rowKey);
+    if (existing.status === 'dismissed') entity.status = 'dismissed';
+  } catch { /* new entity */ }
+  await client.upsertEntity(entity, 'Replace');
+}
+
+export async function getASPRightsizing(subscriptionId?: string): Promise<ASPRightsizingEntity[]> {
+  const client = await ensureTable(TABLES.asp);
+  const results: ASPRightsizingEntity[] = [];
+  const filter = subscriptionId
+    ? odata`PartitionKey eq ${subscriptionId} and status eq 'active'`
+    : odata`status eq 'active'`;
+  const iter = client.listEntities<ASPRightsizingEntity>({ queryOptions: { filter } });
+  for await (const entity of iter) results.push(entity);
+  return results;
+}
+
+// ─── Dismissed Recommendations ───────────────────────────────────────────────
+
+export interface DismissedItem {
+  id: string;
+  type: 'rightsizing' | 'ahb' | 'storage' | 'idle' | 'database' | 'asp';
+  resourceName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+  estimatedMonthlySaving: number;
+  details: string;
+}
+
+export async function getDismissedRecommendations(): Promise<DismissedItem[]> {
+  const results: DismissedItem[] = [];
+  const dismissedFilter = odata`status eq 'dismissed'`;
+
+  async function collect<T extends TableEntity>(
+    tableName: string,
+    type: DismissedItem['type'],
+    map: (e: T) => DismissedItem
+  ) {
+    try {
+      const client = await ensureTable(tableName);
+      const iter = client.listEntities<T>({ queryOptions: { filter: dismissedFilter } });
+      for await (const e of iter) results.push(map(e));
+    } catch { /* table may not exist yet */ }
+  }
+
+  await Promise.all([
+    collect<RightsizingEntity>(TABLES.rightsizing, 'rightsizing', (e) => ({
+      id: e.rowKey, type: 'rightsizing',
+      resourceName: e.vmName, resourceGroup: e.resourceGroup,
+      subscriptionId: e.subscriptionId, estimatedMonthlySaving: e.monthlySaving,
+      details: `${e.currentSku} → ${e.recommendedSku}`,
+    })),
+    collect<AHBEntity>(TABLES.ahb, 'ahb', (e) => ({
+      id: e.rowKey, type: 'ahb',
+      resourceName: e.resourceName, resourceGroup: e.resourceGroup,
+      subscriptionId: e.subscriptionId, estimatedMonthlySaving: e.savingWithAHB,
+      details: `${e.resourceType} — ${e.sku}`,
+    })),
+    collect<StorageRecommendationEntity>(TABLES.storage, 'storage', (e) => ({
+      id: e.rowKey, type: 'storage',
+      resourceName: e.resourceName, resourceGroup: e.resourceGroup,
+      subscriptionId: e.subscriptionId, estimatedMonthlySaving: e.estimatedMonthlySaving,
+      details: e.recommendation,
+    })),
+    collect<IdleResourceEntity>(TABLES.idleResources, 'idle', (e) => ({
+      id: e.rowKey, type: 'idle',
+      resourceName: e.resourceName, resourceGroup: e.resourceGroup,
+      subscriptionId: e.subscriptionId, estimatedMonthlySaving: e.estimatedMonthlyCost,
+      details: e.resourceType,
+    })),
+    collect<DatabaseRecommendationEntity>(TABLES.databases, 'database', (e) => ({
+      id: e.rowKey, type: 'database',
+      resourceName: e.resourceName, resourceGroup: e.resourceGroup,
+      subscriptionId: e.subscriptionId, estimatedMonthlySaving: e.estimatedMonthlySaving,
+      details: e.recommendation,
+    })),
+    collect<ASPRightsizingEntity>(TABLES.asp, 'asp', (e) => ({
+      id: e.rowKey, type: 'asp',
+      resourceName: e.aspName, resourceGroup: e.resourceGroup,
+      subscriptionId: e.subscriptionId, estimatedMonthlySaving: e.monthlySaving,
+      details: `${e.currentSku} → ${e.recommendedSku}`,
+    })),
+  ]);
+
+  return results.sort((a, b) => b.estimatedMonthlySaving - a.estimatedMonthlySaving);
 }
 
 // ─── Generic Upsert for marking items ────────────────────────────────────────

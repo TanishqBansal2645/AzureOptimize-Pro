@@ -30,8 +30,7 @@ import {
 } from '../lib/auth/validateUser';
 
 function createRowKey(resourceId: string): string {
-  // Create a stable row key from resource ID
-  return Buffer.from(resourceId).toString('base64').replace(/[/+=]/g, '_').slice(0, 512);
+  return Buffer.from(resourceId.toLowerCase()).toString('base64').replace(/[/+=]/g, '_').slice(0, 512);
 }
 
 async function getSubscriptionIds(): Promise<string[]> {

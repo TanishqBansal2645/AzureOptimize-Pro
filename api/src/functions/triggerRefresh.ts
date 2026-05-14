@@ -19,6 +19,7 @@ import { scanAndStoreDatabases } from './scanDatabases';
 import { analyzeAndStoreRightsizing } from './analyzeRightsizing';
 import { fetchAndStoreRecommendations } from './fetchRecommendations';
 import { syncAndStoreBudgets } from './getBudgets';
+import { analyzeAndStoreASP } from './scanASP';
 
 async function triggerRefreshHttp(
   request: HttpRequest,
@@ -42,6 +43,7 @@ async function triggerRefreshHttp(
     { name: 'rightsizing', fn: () => analyzeAndStoreRightsizing(context) },
     { name: 'reservations', fn: () => fetchAndStoreRecommendations(context) },
     { name: 'budgets', fn: () => syncAndStoreBudgets(context) },
+    { name: 'asp', fn: () => analyzeAndStoreASP(context) },
   ];
 
   const results = await Promise.allSettled(scanners.map((s) => s.fn()));

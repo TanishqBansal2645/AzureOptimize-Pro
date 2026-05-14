@@ -142,6 +142,36 @@ export async function getWindowsLicenseSaving(
   };
 }
 
+function normalizeASPSkuForAPI(sku: string): string {
+  // "P1v2" → "P1 v2", "P2v3" → "P2 v3"; "B1"/"S1" unchanged
+  return sku.replace(/^([A-Za-z]+\d+)(v\d+)$/i, '$1 $2');
+}
+
+const ASP_PRICE_FALLBACK: Record<string, number> = {
+  b1: 13.14, b2: 26.28, b3: 52.56,
+  s1: 73.0, s2: 146.0, s3: 292.0,
+  p1v2: 81.03, p2v2: 162.06, p3v2: 324.12,
+  p1v3: 118.40, p2v3: 236.80, p3v3: 473.60,
+};
+
+export async function getASPPrice(sku: string, region: string): Promise<number> {
+  const apiSku = normalizeASPSkuForAPI(sku);
+  const filter = `serviceName eq 'Azure App Service' and armRegionName eq '${region}' and armSkuName eq '${apiSku}' and priceType eq 'Consumption'`;
+  const prices = await fetchPrices(filter);
+
+  const hourlyPrice = prices
+    .filter((p) => p.unitOfMeasure === '1 Hour')
+    .sort((a, b) => a.retailPrice - b.retailPrice)[0];
+
+  if (hourlyPrice) return Math.round(hourlyPrice.retailPrice * 730 * 100) / 100;
+
+  const fallback = ASP_PRICE_FALLBACK[sku.toLowerCase()] ?? 0;
+  if (!fallback) {
+    console.warn(`[retailPrices] no price found for ASP SKU ${sku} in ${region}`);
+  }
+  return fallback;
+}
+
 export async function getPublicIPCost(region: string): Promise<number> {
   const filter = `serviceName eq 'IP Addresses' and armRegionName eq '${region}' and priceType eq 'Consumption'`;
   const prices = await fetchPrices(filter);

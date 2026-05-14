@@ -216,6 +216,44 @@ export async function getDiskIOPSMetrics(
   }
 }
 
+export interface ASPMetrics {
+  aspResourceId: string;
+  cpuAvg: number;
+  memoryAvg: number;
+  dataPoints: number;
+}
+
+export async function getASPMetrics(aspResourceId: string): Promise<ASPMetrics> {
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  try {
+    const result = await client.queryResource(
+      aspResourceId,
+      ['CpuPercentage', 'MemoryPercentage'],
+      {
+        timespan: { startTime: thirtyDaysAgo, endTime: new Date() },
+        granularity: 'PT1H',
+        aggregations: ['Average'],
+      }
+    );
+
+    const cpuValues = extractMetricValues(result.metrics, 'CpuPercentage');
+    const memValues = extractMetricValues(result.metrics, 'MemoryPercentage');
+
+    return {
+      aspResourceId,
+      cpuAvg: cpuValues.length > 0 ? cpuValues.reduce((a, b) => a + b, 0) / cpuValues.length : 0,
+      memoryAvg: memValues.length > 0 ? memValues.reduce((a, b) => a + b, 0) / memValues.length : 0,
+      dataPoints: cpuValues.length,
+    };
+  } catch (err) {
+    const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    console.error(`[monitorMetrics] ASP queryResource failed for ${aspResourceId}: ${errMsg}`);
+    return { aspResourceId, cpuAvg: 0, memoryAvg: 0, dataPoints: 0 };
+  }
+}
+
 export async function getSQLDatabaseMetrics(
   sqlResourceId: string
 ): Promise<{ avgDtuPercent: number; maxDtuPercent: number }> {

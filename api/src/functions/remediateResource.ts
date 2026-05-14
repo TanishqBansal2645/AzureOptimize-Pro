@@ -31,7 +31,7 @@ import {
 } from '../lib/azure/remediation';
 
 interface RemediateRequest {
-  type: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations';
+  type: 'idle' | 'rightsizing' | 'ahb' | 'storage' | 'databases' | 'reservations' | 'asp';
   recommendationId?: string;
   resourceId: string;
   resourceName: string;
@@ -59,6 +59,7 @@ const TABLE_MAP: Record<string, string> = {
   storage: TABLES.storage,
   databases: TABLES.databases,
   reservations: TABLES.reservations,
+  asp: TABLES.asp,
 };
 
 async function dispatchRemediation(
@@ -130,6 +131,24 @@ async function dispatchRemediation(
           `# Purchase Reserved Instance via Azure CLI`,
           `# Review available SKUs first:`,
           `az reservations catalog show --subscription-id "${subscriptionId}" --resource-type "VirtualMachines"`,
+        ].join('\n'),
+      };
+    }
+
+    // ── App Service Plan scale-down — manual via CLI or Portal ──────────────────
+    case 'asp': {
+      const targetSku = req.recommendedSku ?? '';
+      return {
+        success: true,
+        automated: false,
+        action: `Scale App Service Plan ${resourceName} to ${targetSku || 'a smaller SKU'} (manual)`,
+        portalUrl: `https://portal.azure.com/#resource${resourceId}/sku`,
+        powershellCommand: [
+          `# Scale down App Service Plan via Azure CLI`,
+          `az appservice plan update \\`,
+          `  --name "${resourceName}" \\`,
+          `  --resource-group "${resourceGroup}" \\`,
+          `  --sku "${targetSku}"`,
         ].join('\n'),
       };
     }

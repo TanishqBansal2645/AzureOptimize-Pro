@@ -191,7 +191,7 @@ export async function analyzeAndStoreRightsizing(context: InvocationContext): Pr
       const confidence =
         metrics.cpuP95 < 25 && metrics.memoryP95 < 70 ? 'High' : 'Medium';
 
-      const rowKey = Buffer.from(vm.id)
+      const rowKey = Buffer.from(vm.id.toLowerCase())
         .toString('base64')
         .replace(/[/+=]/g, '_')
         .slice(0, 512);
