@@ -5,6 +5,7 @@ import {
   Configuration,
   AccountInfo,
   InteractionRequiredAuthError,
+  BrowserAuthError,
 } from '@azure/msal-browser';
 
 const msalConfig: Configuration = {
@@ -72,9 +73,13 @@ export async function getAccessToken(): Promise<string | null> {
     });
     return result.accessToken;
   } catch (err) {
-    if (err instanceof InteractionRequiredAuthError) {
-      // Popup is blocked when not triggered by a user click (e.g. from useQuery).
-      // Use redirect instead — silent since consent is already granted.
+    if (
+      err instanceof InteractionRequiredAuthError ||
+      // BrowserAuthError: timed_out fires when the hidden iframe MSAL uses for silent
+      // SSO is blocked by X-Frame-Options: DENY on the SWA. Treat it the same as
+      // InteractionRequiredAuthError — redirect to login to get a fresh token.
+      (err instanceof BrowserAuthError && (err as BrowserAuthError).errorCode === 'timed_out')
+    ) {
       await msalInstance.acquireTokenRedirect({ ...apiTokenRequest, account });
       return null; // unreachable; browser navigates away
     }
