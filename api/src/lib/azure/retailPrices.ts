@@ -52,15 +52,24 @@ export async function getVMPrice(
   region: string,
   osType: 'Windows' | 'Linux' = 'Windows'
 ): Promise<number> {
-  const osFilter =
-    osType === 'Windows'
-      ? `productName contains 'Windows'`
-      : `productName contains 'Linux'`;
-
-  const filter = `serviceName eq 'Virtual Machines' and armRegionName eq '${region}' and armSkuName eq '${skuName}' and priceType eq 'Consumption' and ${osFilter}`;
+  // Azure retail API never puts 'Linux' in product names for standard VMs.
+  // Linux entries are just "Virtual Machines D Series"; Windows entries add "Windows".
+  // For Linux: fetch all SKU entries, then exclude Windows-labelled rows client-side.
+  const filter = osType === 'Windows'
+    ? `serviceName eq 'Virtual Machines' and armRegionName eq '${region}' and armSkuName eq '${skuName}' and priceType eq 'Consumption' and productName contains 'Windows'`
+    : `serviceName eq 'Virtual Machines' and armRegionName eq '${region}' and armSkuName eq '${skuName}' and priceType eq 'Consumption'`;
 
   const prices = await fetchPrices(filter);
-  const hourlyPrice = prices
+
+  const eligible = osType === 'Linux'
+    ? prices.filter(
+        (p) =>
+          !p.productName.toLowerCase().includes('windows') &&
+          !p.skuName.toLowerCase().includes('windows')
+      )
+    : prices;
+
+  const hourlyPrice = eligible
     .filter((p) => p.unitOfMeasure === '1 Hour' && !p.skuName.toLowerCase().includes('spot'))
     .sort((a, b) => a.retailPrice - b.retailPrice)[0];
 

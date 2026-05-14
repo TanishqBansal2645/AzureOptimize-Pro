@@ -293,10 +293,10 @@ export async function findPremiumDisks(
     Resources
     | where type =~ 'microsoft.compute/disks'
     | where sku.name =~ 'Premium_LRS'
-    | where properties.diskState =~ 'Attached'
     | project id, name, resourceGroup, subscriptionId, location,
               sku=sku.name, sizeGB=properties.diskSizeGB,
-              iopsLimit=properties.diskIOPSReadWrite
+              iopsLimit=properties.diskIOPSReadWrite,
+              diskState=properties.diskState
   `;
   return (await runResourceGraphQuery(subscriptionIds, query)) as Array<Record<string, unknown>>;
 }

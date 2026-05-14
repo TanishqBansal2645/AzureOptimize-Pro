@@ -60,10 +60,20 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
         const diskId = String(disk['id'] ?? '');
         const provisionedIops = Number(disk['iopsLimit'] ?? 120);
         const sizeGB = Number(disk['sizeGB'] ?? 128);
+        const diskState = String(disk['diskState'] ?? 'Unknown').toLowerCase();
+        const isUnattached = diskState === 'unattached';
 
-        const metrics = await getDiskIOPSMetrics(diskId, provisionedIops);
+        // Unattached disks have zero I/O by definition — skip the metrics call
+        // (the metrics endpoint errors for detached disks, which would set avgIopsPercent=100)
+        let avgIopsPercent: number;
+        if (isUnattached) {
+          avgIopsPercent = 0;
+        } else {
+          const ioMetrics = await getDiskIOPSMetrics(diskId, provisionedIops);
+          avgIopsPercent = ioMetrics.avgIopsPercent;
+        }
 
-        if (metrics.avgIopsPercent < 20) {
+        if (avgIopsPercent < 20) {
           const premiumCost = sizeGB * 0.135;
           const standardSSDCost = sizeGB * 0.05;
           const saving = premiumCost - standardSSDCost;
@@ -74,6 +84,10 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
               .replace(/[/+=]/g, '_')
               .slice(0, 512);
 
+            const issue = isUnattached
+              ? 'Disk is unattached — Premium SSD with no I/O activity'
+              : `Average IOPS usage is ${Math.round(avgIopsPercent)}% of provisioned`;
+
             await upsertStorageRecommendation({
               partitionKey: String(disk['subscriptionId'] ?? ''),
               rowKey,
@@ -83,10 +97,10 @@ export async function scanAndStoreStorage(context: InvocationContext): Promise<v
               resourceGroup: String(disk['resourceGroup'] ?? ''),
               subscriptionId: String(disk['subscriptionId'] ?? ''),
               subscriptionName: '',
-              issue: `Average IOPS usage is ${Math.round(metrics.avgIopsPercent)}% of provisioned`,
+              issue,
               recommendation: 'Downgrade from Premium SSD to Standard SSD',
               estimatedMonthlySaving: Math.round(saving * 100) / 100,
-              details: JSON.stringify({ avgIopsPercent: metrics.avgIopsPercent, sizeGB }),
+              details: JSON.stringify({ avgIopsPercent, sizeGB, diskState }),
               scannedAt: new Date().toISOString(),
               status: 'active',
             });

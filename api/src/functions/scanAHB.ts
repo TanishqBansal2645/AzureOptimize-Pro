@@ -62,10 +62,22 @@ export async function scanAndStoreAHB(context: InvocationContext): Promise<void>
 
   context.log(`Found ${windowsVMs.length} Windows VMs and ${sqlVMs.length} SQL VMs without AHB`);
 
+  if (windowsVMs.length === 0 && sqlVMs.length === 0) {
+    context.warn(
+      'AHB scan: Resource Graph returned 0 Windows/SQL VMs without AHB. ' +
+      'If you expect Windows VMs to appear, check: (1) VM is fully indexed in Resource Graph ' +
+      '(new VMs can take 10-30 min), (2) VM does not already have licenseType=Windows_Server, ' +
+      `(3) Managed Identity has Reader role on subscriptions: ${subscriptionIds.join(', ')}`
+    );
+  }
+
   for (const vm of windowsVMs) {
     try {
       const saving = await getWindowsLicenseSaving(vm.sku ?? '', vm.location);
-      if (saving <= 0) continue;
+      if (saving <= 0) {
+        context.warn(`AHB: skipping ${vm.name} (${vm.sku} in ${vm.location}) — price lookup returned saving=$${saving}`);
+        continue;
+      }
 
       const rowKey = Buffer.from(vm.id)
         .toString('base64')
