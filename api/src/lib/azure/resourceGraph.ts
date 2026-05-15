@@ -336,6 +336,33 @@ export interface ASPResource {
   numberOfSites: number;
 }
 
+export async function findLongStoppedVMs(
+  subscriptionIds: string[]
+): Promise<IdleResource[]> {
+  const query = `
+    Resources
+    | where type =~ 'microsoft.compute/virtualmachines'
+    | extend powerState = tostring(properties.extended.instanceView.powerState.code)
+    | where powerState in~ ('PowerState/stopped', 'PowerState/deallocated')
+    | project id, name, resourceGroup, subscriptionId, location,
+              sku=properties.hardwareProfile.vmSize,
+              osType=properties.storageProfile.osDisk.osType,
+              osDiskSizeGB=properties.storageProfile.osDisk.diskSizeGB,
+              powerState
+  `;
+  const results = await runResourceGraphQuery(subscriptionIds, query);
+  return (results as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r['id'] ?? ''),
+    name: String(r['name'] ?? ''),
+    type: 'Long-Stopped VM',
+    resourceGroup: String(r['resourceGroup'] ?? ''),
+    subscriptionId: String(r['subscriptionId'] ?? ''),
+    location: String(r['location'] ?? ''),
+    sku: String(r['sku'] ?? ''),
+    details: r,
+  }));
+}
+
 export async function findAppServicePlansForRightsizing(
   subscriptionIds: string[]
 ): Promise<ASPResource[]> {

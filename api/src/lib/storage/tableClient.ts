@@ -273,6 +273,7 @@ export async function upsertIdleResource(entity: IdleResourceEntity): Promise<vo
   try {
     const existing = await client.getEntity<IdleResourceEntity>(entity.partitionKey, entity.rowKey);
     if (existing.status === 'dismissed' || existing.status === 'reviewed') entity.status = existing.status;
+    if (existing.detectedAt) entity.detectedAt = existing.detectedAt;
   } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }

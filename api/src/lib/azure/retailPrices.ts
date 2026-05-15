@@ -235,6 +235,11 @@ export function estimateIdleResourceCost(
       return 2;
     case 'Idle Load Balancer':
       return 18;
+    case 'Long-Stopped VM': {
+      // Deallocated VMs pay only for attached disks; estimate OS disk cost
+      const sizeGB = Number(details['osDiskSizeGB'] ?? 128);
+      return estimateDiskCost('StandardSSD_LRS', sizeGB);
+    }
     default:
       return 10;
   }

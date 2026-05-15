@@ -14,6 +14,7 @@ import {
   findOldSnapshots,
   findOrphanedNICs,
   findIdleLoadBalancers,
+  findLongStoppedVMs,
   IdleResource,
 } from '../lib/azure/resourceGraph';
 import { estimateIdleResourceCost } from '../lib/azure/retailPrices';
@@ -72,6 +73,7 @@ export async function scanAndStoreIdleResources(context: InvocationContext): Pro
     () => findOldSnapshots(subscriptionIds),
     () => findOrphanedNICs(subscriptionIds),
     () => findIdleLoadBalancers(subscriptionIds),
+    () => findLongStoppedVMs(subscriptionIds),
   ];
 
   const results = await Promise.allSettled(scanners.map((s) => s()));
@@ -152,11 +154,20 @@ async function getIdleResourcesHttp(
     const category = request.query.get('category') ?? '';
     const resources = await getIdleResources();
 
-    const filtered = category
+    const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    const filtered = (category
       ? resources.filter((r) =>
           r.resourceType.toLowerCase().includes(category.toLowerCase())
         )
-      : resources;
+      : resources
+    ).filter((r) => {
+      if (r.resourceType === 'Long-Stopped VM') {
+        return (now - new Date(r.detectedAt).getTime()) >= SIXTY_DAYS_MS;
+      }
+      return true;
+    });
 
     const parsed = filtered.map((r) => ({
       id: r.rowKey,
