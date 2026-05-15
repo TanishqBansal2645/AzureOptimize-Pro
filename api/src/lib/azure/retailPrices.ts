@@ -235,6 +235,15 @@ export function estimateIdleResourceCost(
       return 2;
     case 'Idle Load Balancer':
       return 18;
+    case 'Idle VPN Gateway': {
+      const sku = String(details['sku'] ?? '').toLowerCase();
+      if (sku.includes('vpngw5')) return 1120;
+      if (sku.includes('vpngw4')) return 840;
+      if (sku.includes('vpngw3')) return 560;
+      if (sku.includes('vpngw2')) return 280;
+      if (sku.includes('vpngw1')) return 140;
+      return 27; // Basic
+    }
     case 'Long-Stopped VM': {
       // Deallocated VMs pay only for attached disks; estimate OS disk cost
       const sizeGB = Number(details['osDiskSizeGB'] ?? 128);

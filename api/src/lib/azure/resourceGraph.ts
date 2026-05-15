@@ -336,6 +336,41 @@ export interface ASPResource {
   numberOfSites: number;
 }
 
+export async function findIdleVPNGateways(
+  subscriptionIds: string[]
+): Promise<IdleResource[]> {
+  const query = `
+    Resources
+    | where type =~ 'microsoft.network/virtualnetworkgateways'
+    | where properties.gatewayType =~ 'Vpn'
+    | extend gwId = tolower(id)
+    | extend vpnClientPools = properties.vpnClientConfiguration.vpnClientAddressPool.addressPrefixes
+    | extend hasP2S = isnotnull(vpnClientPools) and array_length(vpnClientPools) > 0
+    | join kind=leftouter (
+        Resources
+        | where type =~ 'microsoft.network/connections'
+        | where properties.connectionType =~ 'IPsec'
+        | extend gwRef = tolower(tostring(properties.virtualNetworkGateway1.id))
+        | extend isActive = properties.connectionStatus in~ ('Connected', 'Connecting')
+        | summarize activeConnections = countif(isActive), totalConnections = count() by gwRef
+      ) on $left.gwId == $right.gwRef
+    | where not(hasP2S) and (isnull(activeConnections) or activeConnections == 0)
+    | project id, name, resourceGroup, subscriptionId, location, sku=sku.name, tier=sku.tier,
+              totalConnections=coalesce(totalConnections, 0)
+  `;
+  const results = await runResourceGraphQuery(subscriptionIds, query);
+  return (results as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r['id'] ?? ''),
+    name: String(r['name'] ?? ''),
+    type: 'Idle VPN Gateway',
+    resourceGroup: String(r['resourceGroup'] ?? ''),
+    subscriptionId: String(r['subscriptionId'] ?? ''),
+    location: String(r['location'] ?? ''),
+    sku: String(r['sku'] ?? ''),
+    details: r,
+  }));
+}
+
 export async function findLongStoppedVMs(
   subscriptionIds: string[]
 ): Promise<IdleResource[]> {

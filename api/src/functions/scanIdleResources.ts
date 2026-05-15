@@ -14,6 +14,7 @@ import {
   findOldSnapshots,
   findOrphanedNICs,
   findIdleLoadBalancers,
+  findIdleVPNGateways,
   findLongStoppedVMs,
   IdleResource,
 } from '../lib/azure/resourceGraph';
@@ -73,6 +74,7 @@ export async function scanAndStoreIdleResources(context: InvocationContext): Pro
     () => findOldSnapshots(subscriptionIds),
     () => findOrphanedNICs(subscriptionIds),
     () => findIdleLoadBalancers(subscriptionIds),
+    () => findIdleVPNGateways(subscriptionIds),
     () => findLongStoppedVMs(subscriptionIds),
   ];
 
