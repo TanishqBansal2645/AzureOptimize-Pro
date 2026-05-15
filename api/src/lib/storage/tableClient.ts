@@ -299,6 +299,24 @@ export async function updateIdleResourceStatus(
   await client.updateEntity({ partitionKey, rowKey, status }, 'Merge');
 }
 
+export async function recordIdleScanTime(): Promise<void> {
+  const client = await ensureTable(TABLES.idleResources);
+  await client.upsertEntity(
+    { partitionKey: '_meta', rowKey: 'lastScan', scannedAt: new Date().toISOString() } as unknown as TableEntity,
+    'Replace'
+  );
+}
+
+export async function getIdleScanTime(): Promise<string | null> {
+  const client = await ensureTable(TABLES.idleResources);
+  try {
+    const entity = await client.getEntity<{ scannedAt?: string }>('_meta', 'lastScan');
+    return entity.scannedAt ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Rightsizing Operations ───────────────────────────────────────────────────
 
 export async function upsertRightsizing(entity: RightsizingEntity): Promise<void> {

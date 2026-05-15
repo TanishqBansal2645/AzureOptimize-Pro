@@ -24,6 +24,8 @@ import {
   getIdleResources,
   updateIdleResourceStatus,
   deleteStaleEntities,
+  recordIdleScanTime,
+  getIdleScanTime,
   TABLES,
 } from '../lib/storage/tableClient';
 import {
@@ -128,6 +130,12 @@ export async function scanAndStoreIdleResources(context: InvocationContext): Pro
     );
   }
 
+  try {
+    await recordIdleScanTime();
+  } catch (err) {
+    context.error('Failed to record idle scan time:', err);
+  }
+
   context.log('Idle resource scan complete');
 }
 
@@ -197,7 +205,7 @@ async function getIdleResourcesHttp(
           return acc;
         }, {}),
       },
-      lastScanned: resources[0]?.detectedAt ?? null,
+      lastScanned: await getIdleScanTime(),
     });
   } catch (err) {
     context.error('Error fetching idle resources:', err);

@@ -30,13 +30,50 @@ export async function remediateIdleResource(
   resourceId: string,
   resourceType: string
 ): Promise<RemediationResult> {
+  const resourceName = resourceId.split('/').pop() ?? resourceId;
+  const resourceGroup = resourceId.split('/')[4] ?? '';
+
+  if (resourceType === 'Idle VPN Gateway') {
+    return {
+      success: true,
+      automated: false,
+      action: `Delete VPN Gateway ${resourceName} (manual — operation takes 10–40 minutes)`,
+      portalUrl: `https://portal.azure.com/#resource${resourceId}/overview`,
+      cliCommand: [
+        `# WARNING: deletes all VPN connectivity immediately`,
+        `# Delete any Local Network Gateway connections first, then:`,
+        `az network vnet-gateway delete \\`,
+        `  --resource-group "${resourceGroup}" \\`,
+        `  --name "${resourceName}"`,
+      ].join('\n'),
+    };
+  }
+
+  if (resourceType === 'Long-Stopped VM') {
+    return {
+      success: true,
+      automated: false,
+      action: `Delete VM ${resourceName} (manual — verify attached resources first)`,
+      portalUrl: `https://portal.azure.com/#resource${resourceId}/overview`,
+      cliCommand: [
+        `# Delete the VM`,
+        `az vm delete \\`,
+        `  --resource-group "${resourceGroup}" \\`,
+        `  --name "${resourceName}" \\`,
+        `  --yes`,
+        `# Then check for orphaned disks, NICs, and public IPs in the same resource group`,
+        `az disk list --resource-group "${resourceGroup}" --query "[?diskState=='Unattached']" -o table`,
+      ].join('\n'),
+    };
+  }
+
   const apiVersion = IDLE_API_VERSIONS[resourceType] ?? '2023-01-01';
   const client = new ResourceManagementClient(credential, subscriptionId);
   await client.resources.beginDeleteByIdAndWait(resourceId, apiVersion);
   return {
     success: true,
     automated: true,
-    action: `Deleted ${resourceType}: ${resourceId.split('/').pop() ?? resourceId}`,
+    action: `Deleted ${resourceType}: ${resourceName}`,
   };
 }
 

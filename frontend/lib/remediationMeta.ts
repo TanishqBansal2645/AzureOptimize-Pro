@@ -37,6 +37,38 @@ export function getRiskProfile(
   switch (type) {
     case 'idle': {
       const rt = resourceType.toLowerCase();
+      if (rt.includes('vpn gateway')) {
+        return {
+          risk: 'High',
+          downtime: 'Immediate loss of all VPN connectivity',
+          reversible: false,
+          recommendedTime: 'Off-hours recommended',
+          automated: false,
+          actionVerb: 'Delete (manual)',
+          impacts: [
+            'VPN gateway will be permanently deleted (operation takes 10–40 minutes)',
+            'All Site-to-Site and Point-to-Site VPN connectivity will be immediately terminated',
+            'Hybrid network access between on-premises and Azure will be lost',
+            'CLI command will be provided — verify no active tunnels before proceeding',
+          ],
+        };
+      }
+      if (rt.includes('stopped vm')) {
+        return {
+          risk: 'Medium',
+          downtime: 'None (VM is already stopped)',
+          reversible: false,
+          recommendedTime: 'Anytime',
+          automated: false,
+          actionVerb: 'Delete (manual)',
+          impacts: [
+            'VM resource will be permanently deleted',
+            'OS disk will be deleted if auto-delete was configured at VM creation',
+            'Data disks, NICs, and public IPs may remain as orphaned resources',
+            'Verify no important data or snapshots need to be retained first',
+          ],
+        };
+      }
       if (rt.includes('load balancer')) {
         return {
           risk: 'High',

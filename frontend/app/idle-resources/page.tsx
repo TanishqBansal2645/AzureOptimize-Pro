@@ -22,6 +22,8 @@ const categories = [
   'Old Snapshot',
   'Orphaned NIC',
   'Idle Load Balancer',
+  'Idle VPN Gateway',
+  'Long-Stopped VM',
 ];
 
 export default function IdleResourcesPage() {
