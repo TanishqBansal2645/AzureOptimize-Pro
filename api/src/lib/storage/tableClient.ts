@@ -329,7 +329,7 @@ export async function upsertReservation(entity: ReservationEntity): Promise<void
   const client = await ensureTable(TABLES.reservations);
   try {
     const existing = await client.getEntity<ReservationEntity>(entity.partitionKey, entity.rowKey);
-    if (existing.status === 'purchased') entity.status = 'purchased';
+    if (existing.status === 'purchased' || existing.status === 'dismissed') entity.status = existing.status;
   } catch { /* new entity */ }
   await client.upsertEntity(entity, 'Replace');
 }

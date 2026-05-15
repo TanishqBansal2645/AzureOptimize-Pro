@@ -82,8 +82,12 @@ async function markImplementedHttp(
       return errorResponse(`Unknown recommendation type: ${recommendationType}`, 400);
     }
 
-    // Mark the recommendation as implemented
-    await markEntityStatus(tableName, subscriptionId, rowKey, 'implemented');
+    // Mark the recommendation with the correct terminal status for its type
+    const terminalStatus =
+      recommendationType === 'ahb' ? 'applied' :
+      recommendationType === 'reservations' ? 'purchased' :
+      'implemented';
+    await markEntityStatus(tableName, subscriptionId, rowKey, terminalStatus);
 
     // Log to savings tracker — fire-and-forget so a savings log failure doesn't
     // falsely report the mark-as-implemented operation as failed

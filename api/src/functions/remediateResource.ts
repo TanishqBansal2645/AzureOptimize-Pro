@@ -235,7 +235,8 @@ async function remediateResourceHttp(
       // but we need the actual table row key — the frontend passes it as part of body
       const recRowKey = body.recommendationId ?? '';
       if (recRowKey) {
-        markEntityStatus(tableName, subscriptionId, recRowKey, 'implemented')
+        const terminalStatus = type === 'ahb' ? 'applied' : type === 'reservations' ? 'purchased' : 'implemented';
+        markEntityStatus(tableName, subscriptionId, recRowKey, terminalStatus)
           .catch((e: unknown) => context.error('Failed to mark recommendation implemented:', e));
       }
     }
