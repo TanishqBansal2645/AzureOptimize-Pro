@@ -1,7 +1,7 @@
 # AzureOptimize Pro — Project Guide
 
-> **Version:** 1.1  
-> **Last Updated:** 2026-05-12  
+> **Version:** 1.2  
+> **Last Updated:** 2026-05-15  
 > **Price:** $1,000 one-time per client tenant  
 > **Built by:** Tech Plus Talent
 
@@ -206,7 +206,27 @@ Finds underutilized and over-provisioned database resources.
 
 ---
 
-### Module 8 — Budget Manager
+### Module 8 — App Service Plan Rightsizing
+Finds App Service Plans that are over-provisioned relative to their actual CPU and memory usage.
+
+**Analysis:**
+- Queries Azure Monitor for CPU average and memory average over last 30 days
+- Recommends downsize only if: avg CPU < 20% AND avg memory < 20% (conservative)
+- Downsizes within the same SKU family only (e.g. P2v3 → P1v3, never cross-family)
+- Looks up current and recommended SKU price via Azure Retail Prices API
+- Calculates monthly saving = current price − recommended price
+
+**Supported families:** Basic (B1/B2/B3), Standard (S1/S2/S3), PremiumV2 (P1v2/P2v2/P3v2), PremiumV3 (P1v3/P2v3/P3v3)
+
+**Shows per plan:** name, current SKU, recommended SKU, number of sites, CPU avg%, memory avg%, monthly saving ($)
+
+**Remediation:** Manual — CLI command (`az appservice plan update --sku`) shown on Implement
+
+**Data source:** Azure Resource Graph + Azure Monitor Metrics + Azure Retail Prices API
+
+---
+
+### Module 9 — Budget Manager
 Create and monitor spend budgets with threshold alerts.
 
 **Features:**
@@ -220,7 +240,7 @@ Create and monitor spend budgets with threshold alerts.
 
 ---
 
-### Module 9 — Savings Tracker
+### Module 10 — Savings Tracker
 The single most important module for demonstrating ROI to clients.
 
 **Features:**
@@ -235,7 +255,7 @@ The single most important module for demonstrating ROI to clients.
 
 ---
 
-### Module 10 — Monthly Excel Report
+### Module 11 — Monthly Excel Report
 Generated on-demand, downloaded directly from the dashboard.
 
 **Tabs (2):**
@@ -249,7 +269,21 @@ Generated on-demand, downloaded directly from the dashboard.
 
 ---
 
-### Module 11 — Implementation Log
+### Module 12 — Dismissed Recommendations
+
+Tracks all recommendations a user has dismissed across every optimization category.
+
+**Features:**
+- Unified view of all dismissed items (Idle Resources, VM Rightsizing, AHB, Storage, Databases, App Service Plans)
+- Reservations are intentionally excluded — no dismiss workflow exists for RI purchases
+- Shows: resource name, type, category, estimated monthly saving, date dismissed
+- **Restore** button sends any dismissed item back to `active` status so it reappears in the originating category page
+
+**Storage:** Dismissed status is persisted in each category's Azure Table Storage table (`status = 'dismissed'`). A rescan never resets a dismissed item — the upsert logic preserves terminal statuses.
+
+---
+
+### Module 13 — Implementation Log
 Full audit trail of every remediation run initiated through the tool.
 
 **Features:**
@@ -292,6 +326,7 @@ The Proceed button is disabled until the checkbox is ticked.
 | Database — Azure SQL | **Automated** | DTU/tier scaling via ARM |
 | Database — Cosmos DB | **Manual** | Azure Portal link + migration docs |
 | Reservations | **Manual** | Azure Portal RI purchase link |
+| App Service Plan | **Manual** | `az appservice plan update --sku` command shown post-click |
 
 ### Implementation Lifecycle
 
@@ -347,8 +382,8 @@ The tool covers every major Azure cost optimization category:
 - [ ] Cosmos DB over-provisioned throughput
 
 ### App Services
-- [ ] Empty App Service Plans
-- [ ] Oversized App Service Plans
+- [x] Empty App Service Plans (idle resource scanner)
+- [x] Oversized App Service Plans (ASP rightsizing scanner — CPU + memory < 20%)
 - [ ] Stopped web apps on paid plans
 
 ### Licensing
@@ -394,6 +429,12 @@ Advisor API      ──────►  fetch-recommendations (4h)   ──► R
 Resource Graph   ──────►  scan-ahb (daily)             ──► AHB Scanner
                            └── writes to Table Storage
 
+Monitor Metrics  ──────►  analyze-asp (daily)          ──► ASP Rightsizing
+                           └── writes to Table Storage
+
+                          get-dismissed (on-demand)     ──► Dismissed page
+                           └── reads all category tables (status = 'dismissed')
+
                           generate-excel (on-demand)    ──► Download Report
                            └── reads Table Storage
                            └── writes to Blob Storage
@@ -429,9 +470,11 @@ azureoptimize-pro/
 │   │   ├── hybrid-benefit/      # AHB Scanner
 │   │   ├── storage/             # Storage Optimizer
 │   │   ├── databases/           # Database Optimizer
+│   │   ├── asp-rightsizing/     # App Service Plan Rightsizing
 │   │   ├── budgets/             # Budget Manager
 │   │   ├── savings/             # Savings Tracker
 │   │   ├── reports/             # Excel Report Generator
+│   │   ├── dismissed/           # Dismissed Recommendations (all categories)
 │   │   └── implementations/     # Implementation Log (all remediation runs)
 │   ├── components/
 │   │   ├── ui/
@@ -452,14 +495,16 @@ azureoptimize-pro/
 │   │   │   ├── collectCosts.ts          # Timer: every 4h
 │   │   │   ├── scanIdleResources.ts     # Timer: every 4h
 │   │   │   ├── analyzeRightsizing.ts    # Timer: daily
-│   │   │   ├── fetchRecommendations.ts  # Timer: every 4h
+│   │   │   ├── fetchRecommendations.ts  # Timer: every 6h
 │   │   │   ├── scanAHB.ts               # Timer: daily
 │   │   │   ├── scanStorage.ts           # Timer: daily
 │   │   │   ├── scanDatabases.ts         # Timer: daily
-│   │   │   ├── triggerRefresh.ts        # HTTP POST /api/refresh — runs all 8 scanners in parallel
+│   │   │   ├── scanASP.ts               # Timer: daily — App Service Plan rightsizing
+│   │   │   ├── triggerRefresh.ts        # HTTP POST /api/refresh — runs all 9 scanners in parallel
 │   │   │   ├── generateExcel.ts         # HTTP: on-demand Excel export
 │   │   │   ├── getBudgets.ts            # HTTP: budget list + sync
 │   │   │   ├── markImplemented.ts       # HTTP: mark recommendation implemented (savings log)
+│   │   │   ├── getDismissed.ts          # HTTP GET/POST /dismissed, /recommendations/dismiss, /recommendations/restore
 │   │   │   ├── getSavings.ts            # HTTP: savings tracker data
 │   │   │   ├── remediateResource.ts     # HTTP POST /api/remediation/execute — ARM automation (admin only)
 │   │   │   ├── getImplementations.ts    # HTTP GET /api/implementations — full remediation audit log
@@ -563,7 +608,7 @@ All variables are initialized (at minimum empty) by the Bicep deployment. You ne
 | `WEBSITE_CONTENTSHARE` | ✅ | — | File share name = function app name |
 | `FUNCTIONS_EXTENSION_VERSION` | ✅ | — | Pinned to `~4` |
 | `FUNCTIONS_WORKER_RUNTIME` | ✅ | — | `node` |
-| `WEBSITE_NODE_DEFAULT_VERSION` | ✅ | — | `~20` |
+| `WEBSITE_NODE_DEFAULT_VERSION` | ✅ | — | `~22` |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | ✅ | — | Wired to the App Insights resource |
 | `AZURE_TENANT_ID` | ✅ | — | Passed from deploy script |
 | `AZURE_CLIENT_ID` | ✅ | — | Entra app registration client ID |

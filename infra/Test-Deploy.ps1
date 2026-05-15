@@ -199,6 +199,8 @@ $protectedEndpoints = @(
     @{ Path = "ahb"; Method = "GET" },
     @{ Path = "storage"; Method = "GET" },
     @{ Path = "databases"; Method = "GET" },
+    @{ Path = "asp"; Method = "GET" },
+    @{ Path = "dismissed"; Method = "GET" },
     @{ Path = "budgets"; Method = "GET" },
     @{ Path = "savings"; Method = "GET" },
     @{ Path = "reports"; Method = "GET" }
@@ -219,6 +221,7 @@ Write-Host "  [Section 3] Admin-Only Enforcement" -ForegroundColor Cyan
 $adminEndpoints = @(
     @{ Path = "costs/refresh"; Method = "POST" },
     @{ Path = "idle-resources/refresh"; Method = "POST" },
+    @{ Path = "asp/refresh"; Method = "POST" },
     @{ Path = "refresh"; Method = "POST" }
 )
 
