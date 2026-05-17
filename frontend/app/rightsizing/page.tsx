@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataTable } from '@/components/ui/DataTable';
@@ -8,10 +8,10 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
 import { ImplementationModal } from '@/components/ui/ImplementationModal';
-import { fetchRightsizing, RightsizingItem } from '@/lib/api';
+import { fetchRightsizing, dismissRecommendation, RightsizingItem } from '@/lib/api';
 import { RemediationContext } from '@/lib/remediationMeta';
 import { formatCurrency, formatPercent, formatDateShort } from '@/lib/utils';
-import { Server, DollarSign, ArrowRight, Zap } from 'lucide-react';
+import { Server, DollarSign, ArrowRight, Zap, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 export default function RightsizingPage() {
@@ -21,6 +21,15 @@ export default function RightsizingPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['rightsizing'],
     queryFn: fetchRightsizing,
+  });
+
+  const dismissMutation = useMutation({
+    mutationFn: ({ id, subscriptionId }: { id: string; subscriptionId: string }) =>
+      dismissRecommendation('rightsizing', id, subscriptionId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['rightsizing'] });
+      qc.invalidateQueries({ queryKey: ['dismissed'] });
+    },
   });
 
   const recommendations = data?.data ?? [];
@@ -57,7 +66,7 @@ export default function RightsizingPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold text-slate-900">VM Rightsizing Engine</h2>
-            <p className="text-sm text-slate-500">VMs oversized relative to actual workload (p95 CPU &lt; 40% AND p95 Memory &lt; 60%)</p>
+            <p className="text-sm text-slate-500">VMs oversized relative to actual workload (p95 CPU &lt; 40% AND p95 Memory &lt; 90%)</p>
           </div>
           <StaleBanner lastUpdated={data?.lastAnalyzed} maxAgeHours={24} />
         </div>
@@ -153,17 +162,33 @@ export default function RightsizingPage() {
             },
             {
               key: 'id',
-              label: 'Action',
-              render: (_, row) => (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon={<Zap className="w-3.5 h-3.5" />}
-                  onClick={() => openModal(row as unknown as RightsizingItem)}
-                >
-                  Implement
-                </Button>
-              ),
+              label: 'Actions',
+              render: (_, row) => {
+                const item = row as unknown as RightsizingItem;
+                return (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon={<Zap className="w-3.5 h-3.5" />}
+                      onClick={() => openModal(item)}
+                    >
+                      Implement
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<XCircle className="w-3.5 h-3.5" />}
+                      onClick={() =>
+                        dismissMutation.mutate({ id: item.id, subscriptionId: item.subscriptionId })
+                      }
+                      disabled={dismissMutation.isPending}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                );
+              },
             },
           ]}
         />

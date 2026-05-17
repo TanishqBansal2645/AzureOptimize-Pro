@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataTable } from '@/components/ui/DataTable';
@@ -8,10 +8,10 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
 import { ImplementationModal } from '@/components/ui/ImplementationModal';
-import { fetchDatabases, DatabaseItem } from '@/lib/api';
+import { fetchDatabases, dismissRecommendation, DatabaseItem } from '@/lib/api';
 import { RemediationContext } from '@/lib/remediationMeta';
 import { formatCurrency, formatPercent } from '@/lib/utils';
-import { Database, DollarSign, Zap } from 'lucide-react';
+import { Database, DollarSign, Zap, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 export default function DatabasesPage() {
@@ -25,6 +25,15 @@ export default function DatabasesPage() {
 
   const recommendations = data?.data ?? [];
   const totalSaving = data?.summary.totalMonthlySaving ?? 0;
+
+  const dismissMutation = useMutation({
+    mutationFn: ({ id, subscriptionId }: { id: string; subscriptionId: string }) =>
+      dismissRecommendation('database', id, subscriptionId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['databases'] });
+      qc.invalidateQueries({ queryKey: ['dismissed'] });
+    },
+  });
 
   const openModal = (item: DatabaseItem) => {
     setModalContext({
@@ -130,18 +139,34 @@ export default function DatabasesPage() {
             },
             {
               key: 'id',
-              label: 'Action',
-              render: (_, row) => (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon={<Zap className="w-3.5 h-3.5" />}
-                  disabled={Number(row['estimatedMonthlySaving']) <= 0}
-                  onClick={() => openModal(row as unknown as DatabaseItem)}
-                >
-                  Implement
-                </Button>
-              ),
+              label: 'Actions',
+              render: (_, row) => {
+                const item = row as unknown as DatabaseItem;
+                return (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon={<Zap className="w-3.5 h-3.5" />}
+                      disabled={Number(item.estimatedMonthlySaving) <= 0}
+                      onClick={() => openModal(item)}
+                    >
+                      Implement
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<XCircle className="w-3.5 h-3.5" />}
+                      onClick={() =>
+                        dismissMutation.mutate({ id: item.id, subscriptionId: item.subscriptionId })
+                      }
+                      disabled={dismissMutation.isPending}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                );
+              },
             },
           ]}
         />

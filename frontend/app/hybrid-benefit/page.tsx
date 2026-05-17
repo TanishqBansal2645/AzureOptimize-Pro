@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataTable } from '@/components/ui/DataTable';
@@ -8,10 +8,10 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
 import { ImplementationModal } from '@/components/ui/ImplementationModal';
-import { fetchAHB, AHBItem } from '@/lib/api';
+import { fetchAHB, dismissRecommendation, AHBItem } from '@/lib/api';
 import { RemediationContext } from '@/lib/remediationMeta';
 import { formatCurrency } from '@/lib/utils';
-import { Award, DollarSign, Copy, CheckCircle, Zap } from 'lucide-react';
+import { Award, DollarSign, Copy, CheckCircle, Zap, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 export default function HybridBenefitPage() {
@@ -38,6 +38,15 @@ export default function HybridBenefitPage() {
 
   const recommendations = data?.data ?? [];
   const totalSaving = data?.summary.totalMonthlySaving ?? 0;
+
+  const dismissMutation = useMutation({
+    mutationFn: ({ id, subscriptionId }: { id: string; subscriptionId: string }) =>
+      dismissRecommendation('ahb', id, subscriptionId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ahb'] });
+      qc.invalidateQueries({ queryKey: ['dismissed'] });
+    },
+  });
 
   const openModal = (item: AHBItem) => {
     setModalContext({
@@ -160,17 +169,33 @@ export default function HybridBenefitPage() {
             },
             {
               key: 'id',
-              label: 'Action',
-              render: (_, row) => (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon={<Zap className="w-3.5 h-3.5" />}
-                  onClick={() => openModal(row as unknown as AHBItem)}
-                >
-                  Implement
-                </Button>
-              ),
+              label: 'Actions',
+              render: (_, row) => {
+                const item = row as unknown as AHBItem;
+                return (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon={<Zap className="w-3.5 h-3.5" />}
+                      onClick={() => openModal(item)}
+                    >
+                      Implement
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<XCircle className="w-3.5 h-3.5" />}
+                      onClick={() =>
+                        dismissMutation.mutate({ id: item.id, subscriptionId: item.subscriptionId })
+                      }
+                      disabled={dismissMutation.isPending}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                );
+              },
             },
           ]}
         />

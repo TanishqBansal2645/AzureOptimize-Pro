@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataTable } from '@/components/ui/DataTable';
@@ -8,10 +8,10 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StaleBanner } from '@/components/ui/StaleBanner';
 import { ImplementationModal } from '@/components/ui/ImplementationModal';
-import { fetchStorage, StorageItem } from '@/lib/api';
+import { fetchStorage, dismissRecommendation, StorageItem } from '@/lib/api';
 import { RemediationContext } from '@/lib/remediationMeta';
 import { formatCurrency } from '@/lib/utils';
-import { HardDrive, DollarSign, Zap } from 'lucide-react';
+import { HardDrive, DollarSign, Zap, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 export default function StoragePage() {
@@ -25,6 +25,15 @@ export default function StoragePage() {
 
   const recommendations = data?.data ?? [];
   const totalSaving = data?.summary.totalMonthlySaving ?? 0;
+
+  const dismissMutation = useMutation({
+    mutationFn: ({ id, subscriptionId }: { id: string; subscriptionId: string }) =>
+      dismissRecommendation('storage', id, subscriptionId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['storage'] });
+      qc.invalidateQueries({ queryKey: ['dismissed'] });
+    },
+  });
 
   const openModal = (item: StorageItem) => {
     setModalContext({
@@ -111,17 +120,33 @@ export default function StoragePage() {
             },
             {
               key: 'id',
-              label: 'Action',
-              render: (_, row) => (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon={<Zap className="w-3.5 h-3.5" />}
-                  onClick={() => openModal(row as unknown as StorageItem)}
-                >
-                  Implement
-                </Button>
-              ),
+              label: 'Actions',
+              render: (_, row) => {
+                const item = row as unknown as StorageItem;
+                return (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon={<Zap className="w-3.5 h-3.5" />}
+                      onClick={() => openModal(item)}
+                    >
+                      Implement
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<XCircle className="w-3.5 h-3.5" />}
+                      onClick={() =>
+                        dismissMutation.mutate({ id: item.id, subscriptionId: item.subscriptionId })
+                      }
+                      disabled={dismissMutation.isPending}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                );
+              },
             },
           ]}
         />
