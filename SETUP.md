@@ -9,20 +9,62 @@
 
 ## Quick Commands
 
-Run these from the **client's Azure Cloud Shell**. Set the token once per session, then use the relevant command.
+Run these from the **client's Azure Cloud Shell**.
+
+### Option A — Interactive (PowerShell, short sessions)
+
+Set the token once per session, then run the relevant command. Stay on the tab — takes 30–45 min.
 
 ```powershell
 # 1. Set GitHub token (once per session — stays in memory, never written to disk)
 $env:GITHUB_TOKEN = "ghp_..."
 
-# 2. Fresh install (Entra + infrastructure + GitHub Actions setup + first deploy)
+# 2. Deploy — fresh install (Entra + infrastructure + GitHub Actions + first deploy)
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1)))
 
-# 3. Update (re-apply RBAC, verify health — run after code changes or role drift)
+# 3. Update — re-apply RBAC + verify health (run after code changes or role drift)
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Update
 
-# 4. Decommission (delete all Azure resources — prompts for confirmation)
+# 4. Decommission — delete all Azure resources (prompts for confirmation)
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1))) -Remove
+```
+
+---
+
+### Option B — Nohup / Background (Bash, recommended for deploy + update)
+
+Keeps running on Azure's servers even if your browser tab closes or network drops.  
+All output is written to `~/azopt.log` — reconnect any time and run `tail -f ~/azopt.log` to check progress.
+
+**Deploy (fresh install):**
+```bash
+export GITHUB_TOKEN="ghp_..."
+curl -s https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 > ~/Install.ps1
+nohup pwsh -File ~/Install.ps1 -GitHubToken $GITHUB_TOKEN > /dev/null 2>&1 &
+echo "Deploy running (PID $!). Watching log — Ctrl+C to stop watching (deploy keeps running):"
+tail -f ~/azopt.log
+```
+
+**Update:**
+```bash
+curl -s https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 > ~/Install.ps1
+nohup pwsh -File ~/Install.ps1 -Update > /dev/null 2>&1 &
+echo "Update running (PID $!). Watching log — Ctrl+C to stop watching (update keeps running):"
+tail -f ~/azopt.log
+```
+
+**Decommission** — must run interactively (has a `Type 'yes' to confirm` prompt, finishes in ~2 min):
+```bash
+export GITHUB_TOKEN="ghp_..."
+curl -s https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 > ~/Install.ps1
+pwsh -File ~/Install.ps1 -Remove -GitHubToken $GITHUB_TOKEN
+```
+
+**If disconnected mid-run:** reconnect to Cloud Shell and run:
+```bash
+tail -f ~/azopt.log      # follow live output
+# or
+cat ~/azopt.log          # see full log from the start
 ```
 
 ---
@@ -86,43 +128,9 @@ The script fully cleans up all resources automatically — no manual steps neede
 
 If `$env:GITHUB_TOKEN` is not set, GitHub environments are skipped with a warning and the manual URL is printed.
 
-### If Cloud Shell disconnects mid-run (nohup approach)
-
-A fresh install takes 30–45 minutes. Run the script in the background with `nohup` — it keeps running on Azure's servers even if your browser tab closes or your network drops. All output goes to a log file you can read at any time.
-
-**Fresh install:**
-```bash
-# In bash (Cloud Shell default shell)
-export GITHUB_TOKEN="ghp_..."
-
-# Download the script and run in background
-curl -s https://raw.githubusercontent.com/TanishqBansal2645/AzureOptimize-Pro/main/infra/Install.ps1 > ~/Install.ps1
-nohup pwsh -File ~/Install.ps1 > /dev/null 2>&1 &
-echo "Deploy running (PID $!). Watching log — Ctrl+C to stop watching (deploy keeps running):"
-tail -f ~/azopt.log
-```
-
-**If you get disconnected:** reconnect to Cloud Shell and run:
-```bash
-tail -f ~/azopt.log      # follow live output
-# or
-cat ~/azopt.log          # see the full log from the start
-```
-
-**Update** (repo already cloned):
-```bash
-cd ~/azureoptimize && git pull origin main --quiet
-nohup pwsh -File ~/azureoptimize/infra/Install.ps1 -Update > /dev/null 2>&1 &
-tail -f ~/azopt.log
-```
-
-**Remove** — run interactively (has a confirmation prompt, completes in under 2 minutes):
-```bash
-pwsh
-./azureoptimize/infra/Install.ps1 -Remove
-```
-
 All three commands auto-detect the tenant from your active Azure login. No need to pass `-TenantId` manually.
+
+> See **Quick Commands → Option B** at the top of this guide for the nohup/background versions of deploy and update.
 
 ---
 
